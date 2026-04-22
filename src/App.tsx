@@ -44,11 +44,27 @@ const emptyCustomDataSource: DataSourceState = {
   warnings: []
 };
 
-const examplePrompts = [
+const demoQuickPrompts = [
   "I want to buy a blue shirt",
   "Compare giftable travel bags under $200",
   "Can I buy the coffee grinder now?",
   "Show me an office chair I can follow up on in chat"
+];
+
+const demoRandomPrompts = [
+  ...demoQuickPrompts,
+  "Compare three travel picks under $200: a duffel, carry-on, and sling bag",
+  "Show me three coffee essentials for home brewing under $300",
+  "I need a work-from-home setup: desk, chair, and one accessory",
+  "Compare two apparel options for daily wear and one for rain",
+  "Find two giftable products I can checkout right now",
+  "Show one product with checkout and one that needs follow-up",
+  "Compare limited-stock products so I can decide quickly",
+  "Give me a travel kit: carry-on spinner, duffel, and sling pack",
+  "Show me two fitness options and one wearable to track workouts",
+  "Recommend a compact audio item and a coffee accessory",
+  "Compare kitchen products in horizontal layout",
+  "Show travel products in horizontal format and include prices"
 ];
 
 const MAX_PREVIEW_PRODUCTS = 3;
@@ -202,18 +218,34 @@ const customStarterMessages: ChatMessage[] = [
   }
 ];
 
+type MakerAutofillResponse = {
+  title?: string;
+  description?: string;
+  category?: string;
+  tags?: string[] | string;
+  price?: number | string;
+  currency?: string;
+  availability?: Product["availability"];
+  action?: Product["action"];
+};
+
+const makerAutofillEndpoint = import.meta.env.VITE_AUTOFILL_API_URL || "http://localhost:8787/mock-api/autofill-item";
+const makerAutofillMaxImageBytes = 350_000;
+const makerAutofillMaxDimension = 1024;
+
 const getRouteExperience = () => {
   const hash = window.location.hash;
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
 
   if (hash === "#/custom" || pathname === "/custom") return "custom";
+  if (hash === "#/make-my-own-item" || pathname === "/make-my-own-item") return "maker";
   if (hash === "#/resources" || pathname === "/resources") return "resources";
   return "demo";
 };
 
 function App() {
   const [cardView, setCardView] = useState<"vertical" | "horizontal">("vertical");
-  const [experience, setExperience] = useState<"demo" | "custom" | "resources">(() => getRouteExperience());
+  const [experience, setExperience] = useState<"demo" | "custom" | "maker" | "resources">(() => getRouteExperience());
   const [dataSource, setDataSource] = useState<DataSourceState>(() => (getRouteExperience() === "custom" ? emptyCustomDataSource : defaultDataSource));
   const [messages, setMessages] = useState<ChatMessage[]>(() => (getRouteExperience() === "custom" ? customStarterMessages : starterMessages));
   const [prompt, setPrompt] = useState("");
@@ -234,9 +266,25 @@ function App() {
   const [cardCursor, setCardCursor] = useState<{ x: number; y: number } | null>(null);
   const [isDrawerJsonVisible, setIsDrawerJsonVisible] = useState(false);
   const [isDrawerTraceVisible, setIsDrawerTraceVisible] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [makerTitle, setMakerTitle] = useState("My custom product");
+  const [makerDescription, setMakerDescription] = useState("Add your own product copy here so it can render in a chat response.");
+  const [makerCategory, setMakerCategory] = useState("Custom > Featured Item");
+  const [makerPrice, setMakerPrice] = useState("49.00");
+  const [makerCurrency, setMakerCurrency] = useState("USD");
+  const [makerAvailability, setMakerAvailability] = useState<Product["availability"]>("in_stock");
+  const [makerAction, setMakerAction] = useState<Product["action"]>("checkout");
+  const [makerCardView, setMakerCardView] = useState<"vertical" | "horizontal">("horizontal");
+  const [makerTags, setMakerTags] = useState("custom, handmade, new");
+  const [makerImageUrl, setMakerImageUrl] = useState("");
+  const [makerPhotoObjectUrl, setMakerPhotoObjectUrl] = useState<string | null>(null);
+  const [isMakerAutofilling, setIsMakerAutofilling] = useState(false);
+  const [makerAutofillNotice, setMakerAutofillNotice] = useState("");
+  const [makerLastAutofillSource, setMakerLastAutofillSource] = useState("");
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const customPreviewChatRef = useRef<HTMLElement | null>(null);
   const customPreviewGridRef = useRef<HTMLElement | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const firebase = getFirebaseServices();
@@ -269,6 +317,7 @@ function App() {
       setIsDrawerJsonVisible(false);
       setIsDrawerTraceVisible(false);
       setPrompt("");
+      setIsProfileMenuOpen(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
@@ -335,9 +384,10 @@ function App() {
   );
   const customSandboxProducts = useMemo(() => dataSource.products.slice(0, 10), [dataSource.products]);
   const isCustomExperience = experience === "custom";
+  const isMakerExperience = experience === "maker";
   const isResourcesExperience = experience === "resources";
   const isDemoExperience = experience === "demo";
-  const needsGoogleLogin = isCustomExperience && isFirebaseConfigured && !authUser;
+  const needsGoogleLogin = (isCustomExperience || isMakerExperience) && isFirebaseConfigured && !authUser;
   const hasConnectedData = dataSource.products.length > 0 && dataSource.status === "ready";
   const hasDemoChat = !isCustomExperience && messages.some((message) => message.role === "user");
 
@@ -365,6 +415,25 @@ function App() {
   }, [isCustomExperience, selectedPreviewProducts]);
 
   useEffect(() => {
+    return () => {
+      if (makerPhotoObjectUrl) URL.revokeObjectURL(makerPhotoObjectUrl);
+    };
+  }, [makerPhotoObjectUrl]);
+
+  useEffect(() => {
+    if (!isMakerExperience) return;
+    const imageUrl = makerImageUrl.trim();
+    if (!/^https?:\/\//i.test(imageUrl)) return;
+    if (imageUrl === makerLastAutofillSource || isMakerAutofilling) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void autofillMakerFieldsFromImage(imageUrl);
+    }, 500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isMakerAutofilling, isMakerExperience, makerImageUrl, makerLastAutofillSource]);
+
+  useEffect(() => {
     if (!isCustomExperience) return;
     if (selectedPreviewProducts.length === 0) {
       setIsCustomPreviewLoading(false);
@@ -378,6 +447,38 @@ function App() {
 
     return () => window.clearTimeout(timeoutId);
   }, [isCustomExperience, selectedPreviewProducts]);
+
+  useEffect(() => {
+    if (!isCustomExperience || cardView !== "vertical") return;
+    const previewRoot = customPreviewChatRef.current;
+    if (!previewRoot) return;
+
+    const verticalLists = previewRoot.querySelectorAll<HTMLElement>(".chatgpt-product-card-list.is-vertical");
+    verticalLists.forEach((list) => {
+      list.scrollTo({ left: 0, behavior: "auto" });
+    });
+  }, [isCustomExperience, cardView, selectedPreviewProducts, checkoutProduct]);
+
+  useEffect(() => {
+    if (!isProfileMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (profileMenuRef.current?.contains(target ?? null)) return;
+      setIsProfileMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsProfileMenuOpen(false);
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isProfileMenuOpen]);
 
   const handleFileUpload = async (file: File | null) => {
     if (!file) return;
@@ -480,7 +581,49 @@ function App() {
   };
 
   const handleSignOut = async () => {
+    setIsProfileMenuOpen(false);
     await signOutOfFirebase();
+  };
+
+  const dataUrlByteSize = (value: string) => {
+    const commaIndex = value.indexOf(",");
+    if (commaIndex === -1) return value.length;
+    const base64 = value.slice(commaIndex + 1);
+    const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+    return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+  };
+
+  const loadImageElement = (source: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Could not load the uploaded image."));
+      image.src = source;
+    });
+
+  const optimizeImageDataUrlForAutofill = async (dataUrl: string) => {
+    const image = await loadImageElement(dataUrl);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not initialize image optimization.");
+
+    const maxSide = Math.max(image.width, image.height) || 1;
+    const scale = Math.min(1, makerAutofillMaxDimension / maxSide);
+    const targetWidth = Math.max(1, Math.round(image.width * scale));
+    const targetHeight = Math.max(1, Math.round(image.height * scale));
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    context.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    const qualities = [0.72, 0.62, 0.52, 0.44, 0.34, 0.26];
+    for (const quality of qualities) {
+      const candidate = canvas.toDataURL("image/jpeg", quality);
+      if (dataUrlByteSize(candidate) <= makerAutofillMaxImageBytes) {
+        return candidate;
+      }
+    }
+
+    return canvas.toDataURL("image/jpeg", 0.22);
   };
 
   const customPreviewPrompt =
@@ -536,11 +679,167 @@ function App() {
       }))
     : null;
 
-  const navigateTo = (nextExperience: "demo" | "custom" | "resources") => {
-    const nextPath = nextExperience === "custom" ? "/custom" : nextExperience === "resources" ? "/resources" : "/";
+  const navigateTo = (nextExperience: "demo" | "custom" | "maker" | "resources") => {
+    const nextPath =
+      nextExperience === "custom"
+        ? "/custom"
+        : nextExperience === "maker"
+          ? "/make-my-own-item"
+          : nextExperience === "resources"
+            ? "/resources"
+            : "/";
     if (window.location.pathname === nextPath) return;
     setExperience(nextExperience);
     window.history.pushState({}, "", nextPath);
+  };
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== "string") {
+          reject(new Error("Could not read the uploaded image."));
+          return;
+        }
+        resolve(result);
+      };
+      reader.onerror = () => reject(new Error("Could not read the uploaded image."));
+      reader.readAsDataURL(file);
+    });
+
+  const applyMakerAutofill = (payload: MakerAutofillResponse) => {
+    const nextTitle = payload.title?.trim();
+    const nextDescription = payload.description?.trim();
+    const nextCategory = payload.category?.trim();
+    const nextCurrency = payload.currency?.trim().toUpperCase();
+    const rawPrice = Number(payload.price);
+    const nextPrice = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice.toFixed(2) : "";
+    const nextAvailability = payload.availability;
+    const nextAction = payload.action;
+    const nextTags =
+      Array.isArray(payload.tags)
+        ? payload.tags.map((tag) => String(tag).trim()).filter(Boolean).join(", ")
+        : typeof payload.tags === "string"
+          ? payload.tags
+          : "";
+
+    if (nextTitle) setMakerTitle(nextTitle);
+    if (nextDescription) setMakerDescription(nextDescription);
+    if (nextCategory) setMakerCategory(nextCategory);
+    if (nextCurrency) setMakerCurrency(nextCurrency);
+    if (nextPrice) setMakerPrice(nextPrice);
+    if (nextTags) setMakerTags(nextTags);
+    if (nextAvailability && ["in_stock", "limited", "out_of_stock", "unknown"].includes(nextAvailability)) {
+      setMakerAvailability(nextAvailability);
+    }
+    if (nextAction && ["checkout", "test_drive", "lead_form", "none"].includes(nextAction)) {
+      setMakerAction(nextAction);
+    }
+  };
+
+  const autofillMakerFieldsFromImage = async (imageSource: string) => {
+    if (!imageSource || imageSource === makerLastAutofillSource) return;
+
+    setIsMakerAutofilling(true);
+    setMakerAutofillNotice("Analyzing image with ChatGPT and filling fields...");
+    try {
+      let optimizedImageSource = imageSource;
+      if (/^data:image\//i.test(imageSource)) {
+        optimizedImageSource = await optimizeImageDataUrlForAutofill(imageSource);
+      }
+
+      if (/^data:image\//i.test(optimizedImageSource) && dataUrlByteSize(optimizedImageSource) > makerAutofillMaxImageBytes * 1.35) {
+        throw new Error("Image is still too large after optimization. Try a smaller photo.");
+      }
+
+      const response = await fetch(makerAutofillEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: optimizedImageSource,
+          fields: {
+            title: makerTitle,
+            description: makerDescription,
+            category: makerCategory,
+            tags: makerTags,
+            price: makerPrice,
+            currency: makerCurrency,
+            availability: makerAvailability,
+            action: makerAction
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorPayload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errorPayload.error || `Autofill failed with ${response.status}.`);
+      }
+
+      const payload = (await response.json()) as MakerAutofillResponse;
+      applyMakerAutofill(payload);
+      setMakerLastAutofillSource(imageSource);
+      setMakerAutofillNotice("Fields updated from the image.");
+    } catch (error) {
+      setMakerAutofillNotice(error instanceof Error ? error.message : "Could not autofill from image.");
+    } finally {
+      setIsMakerAutofilling(false);
+    }
+  };
+
+  const handleMakerPhotoUpload = async (file: File | null) => {
+    if (!file) return;
+    if (makerPhotoObjectUrl) URL.revokeObjectURL(makerPhotoObjectUrl);
+    const objectUrl = URL.createObjectURL(file);
+    setMakerPhotoObjectUrl(objectUrl);
+    setMakerImageUrl("");
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      await autofillMakerFieldsFromImage(dataUrl);
+    } catch (error) {
+      setMakerAutofillNotice(error instanceof Error ? error.message : "Could not read uploaded image.");
+    }
+  };
+  const makerResolvedImage = makerImageUrl.trim() || makerPhotoObjectUrl || "/logo_clean.png";
+  const isMakerUsingPlaceholderImage = !makerImageUrl.trim() && !makerPhotoObjectUrl;
+  const makerPrompt = `Can you show "${makerTitle}" in chat and explain the next action?`;
+  const makerItemRecord = {
+    id: "SKU-CUSTOM-ITEM-001",
+    title: makerTitle.trim() || "Custom item",
+    description_plain: makerDescription.trim() || "",
+    category_value: makerCategory.trim() || "Custom > Featured Item",
+    price_amount: Math.round(Math.max(0, Number(makerPrice) || 0) * 100),
+    price_currency: makerCurrency.trim().toUpperCase() || "USD",
+    availability_status: makerAvailability,
+    action: makerAction,
+    tags: makerTags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .join(";"),
+    product_media_url: makerResolvedImage
+  };
+  const downloadMakerJson = () => {
+    const blob = new Blob([`${JSON.stringify(makerItemRecord, null, 2)}\n`], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "my-custom-item.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+  const downloadMakerCsv = () => {
+    const csv = Papa.unparse([makerItemRecord]);
+    const blob = new Blob([`${csv}\n`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "my-custom-item.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
   const scrollToCustomPreviewChat = () => {
     animateWindowScrollToElement(customPreviewChatRef.current, 480);
@@ -567,7 +866,7 @@ function App() {
     }
   };
   const handleGenerateRandomPrompt = () => {
-    const nextPrompt = examplePrompts[Math.floor(Math.random() * examplePrompts.length)] ?? "";
+    const nextPrompt = demoRandomPrompts[Math.floor(Math.random() * demoRandomPrompts.length)] ?? "";
     setPrompt(nextPrompt);
   };
   const customCheckoutDetail = checkoutProduct ? (
@@ -615,6 +914,34 @@ function App() {
     </aside>
   ) : null;
 
+  const authControl = authUser ? (
+    <div className="profile-menu" ref={profileMenuRef}>
+      <button
+        type="button"
+        className="profile-avatar-button"
+        aria-label="Profile menu"
+        aria-expanded={isProfileMenuOpen}
+        onClick={() => setIsProfileMenuOpen((current) => !current)}
+      >
+        {authUser.photoURL ? <img src={authUser.photoURL} alt="Profile" className="profile-avatar-image" /> : <span className="profile-avatar">G</span>}
+      </button>
+      {isProfileMenuOpen && (
+        <div className="profile-menu-popover">
+          <strong>{authUser.displayName ?? "Signed in"}</strong>
+          <p>{authUser.email ?? "Google account"}</p>
+          <button type="button" className="ghost-button" onClick={handleSignOut}>
+            Log out
+          </button>
+        </div>
+      )}
+    </div>
+  ) : (
+    <button type="button" className="profile-login-button" onClick={handleGoogleLogin}>
+      <span className="profile-avatar">G</span>
+      <span>Google login</span>
+    </button>
+  );
+
   const customWorkspace = (
     <>
       <div className={`custom-top-row ${hasConnectedData ? "chat-active" : ""}`}>
@@ -634,7 +961,7 @@ function App() {
             </div>
           </div>
 
-          {hasConnectedData ? (
+          {!needsGoogleLogin && hasConnectedData ? (
             <section
               className={`chatgpt-preview-shell ${checkoutProduct ? "has-inline-detail" : ""} ${isSelectedProductsHovered ? "highlight-selected-preview" : ""}`}
               aria-label="Sample chat preview"
@@ -732,6 +1059,11 @@ function App() {
                 {customCheckoutDetail}
               </div>
             </section>
+          ) : needsGoogleLogin ? (
+            <div className="empty-trace custom-empty-state">
+              <strong>Google login required</strong>
+              <p>Sign in to view sandbox products and sample chat previews.</p>
+            </div>
           ) : (
             <div className="empty-trace custom-empty-state">
               <strong>Connect a product source to begin</strong>
@@ -845,7 +1177,7 @@ function App() {
                   <div className="left-log-panel">
                     <div className="panel-heading compact">
                       <p className="eyebrow">3. Selection</p>
-                      <h2>{customSandboxProducts.length} preview cards</h2>
+                      <h2>{customSandboxProducts.length} Product lab cards</h2>
                     </div>
 
                     <section
@@ -896,7 +1228,7 @@ function App() {
         </aside>
       </div>
 
-      {hasConnectedData ? (
+      {!needsGoogleLogin && hasConnectedData ? (
         <section className="custom-grid-panel" ref={customPreviewGridRef}>
           {dataSource.warnings.length > 0 && (
             <div className="warning-list">
@@ -926,7 +1258,7 @@ function App() {
                 )}
               </div>
               <div className="sandbox-grid-actions">
-                <p>Showing {customSandboxProducts.length} generated previews from the connected catalog. Select up to {MAX_PREVIEW_PRODUCTS} cards to load them into the sample chat.</p>
+                <p>Showing {customSandboxProducts.length} Product lab items from the connected catalog. Select up to {MAX_PREVIEW_PRODUCTS} cards to load them into the sample chat.</p>
               </div>
             </div>
             <div className="sandbox-product-grid">
@@ -979,7 +1311,7 @@ function App() {
       </div>
 
       <div className="prompt-strip">
-        {examplePrompts.map((example) => (
+        {demoQuickPrompts.map((example) => (
           <button type="button" key={example} onClick={() => void sendPrompt(example)} disabled={!hasConnectedData || needsGoogleLogin}>
             {example}
           </button>
@@ -1130,6 +1462,161 @@ function App() {
     </section>
   );
 
+  const makerWorkspace = (
+    <section className="chat-panel maker-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Product lab</p>
+          <h2>Create item + preview in chat (and let ChatGPT summarize it for you!)</h2>
+        </div>
+      </div>
+
+      {needsGoogleLogin ? (
+        <div className="login-gate">
+          <strong>Google login required</strong>
+          <p>Sign in to use Product lab, generate image-based item fields, and export your custom product.</p>
+          <button type="button" onClick={handleGoogleLogin}>
+            Continue with Google
+          </button>
+        </div>
+      ) : (
+        <>
+      <div className="maker-grid">
+        <section className="trace-block maker-form-block">
+          <span>1. Add photo first</span>
+          <strong>Photo-forward item setup</strong>
+          <p>Use a phone or webcam capture, or upload an image file. Then fill in item details.</p>
+          <div className="source-actions single">
+            <label className="file-picker">
+              Take / upload photo *
+              <input type="file" accept="image/*" capture="environment" onChange={(event) => handleMakerPhotoUpload(event.target.files?.[0] ?? null)} />
+            </label>
+          </div>
+          <div className="api-box">
+            <label htmlFor="makerImageUrl">Or paste image URL *</label>
+            <input
+              id="makerImageUrl"
+              value={makerImageUrl}
+              onChange={(event) => setMakerImageUrl(event.target.value)}
+              onBlur={() => {
+                const imageUrl = makerImageUrl.trim();
+                if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return;
+                void autofillMakerFieldsFromImage(imageUrl);
+              }}
+              placeholder="https://..."
+            />
+          </div>
+          <div className={`maker-photo-preview ${isMakerUsingPlaceholderImage ? "is-placeholder" : ""}`}>
+            <img src={makerResolvedImage} alt="" />
+          </div>
+          {makerAutofillNotice && <p className={`maker-notice ${isMakerAutofilling ? "is-loading" : ""}`}>{makerAutofillNotice}</p>}
+        </section>
+
+        <section className="trace-block maker-form-block">
+          <span>2. Item details</span>
+          <strong>Describe your item</strong>
+          <div className="api-box">
+            <label htmlFor="makerTitle">Title *</label>
+            <input id="makerTitle" value={makerTitle} onChange={(event) => setMakerTitle(event.target.value)} required />
+            <label htmlFor="makerDescription">Description *</label>
+            <input id="makerDescription" value={makerDescription} onChange={(event) => setMakerDescription(event.target.value)} required />
+            <label htmlFor="makerCategory">Category *</label>
+            <input id="makerCategory" value={makerCategory} onChange={(event) => setMakerCategory(event.target.value)} required />
+            <label htmlFor="makerTags">Tags (comma-separated)</label>
+            <input id="makerTags" value={makerTags} onChange={(event) => setMakerTags(event.target.value)} />
+            <label htmlFor="makerPrice">Price *</label>
+            <input id="makerPrice" value={makerPrice} onChange={(event) => setMakerPrice(event.target.value)} required />
+            <label htmlFor="makerCurrency">Currency *</label>
+            <input id="makerCurrency" value={makerCurrency} onChange={(event) => setMakerCurrency(event.target.value)} required />
+            <label htmlFor="makerAvailability">Availability *</label>
+            <select id="makerAvailability" value={makerAvailability} onChange={(event) => setMakerAvailability(event.target.value as Product["availability"])} required>
+              <option value="in_stock">in_stock</option>
+              <option value="limited">limited</option>
+              <option value="out_of_stock">out_of_stock</option>
+              <option value="unknown">unknown</option>
+            </select>
+            <label htmlFor="makerAction">Action *</label>
+            <select id="makerAction" value={makerAction} onChange={(event) => setMakerAction(event.target.value as Product["action"])} required>
+              <option value="checkout">checkout</option>
+              <option value="test_drive">test_drive</option>
+              <option value="lead_form">lead_form</option>
+              <option value="none">none</option>
+            </select>
+          </div>
+        </section>
+      </div>
+
+      <section className="chatgpt-preview-shell maker-preview-shell" aria-label="Custom item chat preview">
+        <div className="chatgpt-preview-header">
+          <div>
+            <p className="eyebrow">3. Chat preview</p>
+            <h3>{makerItemRecord.title}</h3>
+          </div>
+          <div className="maker-preview-controls">
+            <div className="card-view-toggle" aria-label="Product lab card layout">
+              <button type="button" className={makerCardView === "vertical" ? "active" : ""} onClick={() => setMakerCardView("vertical")}>
+                Vertical
+              </button>
+              <button type="button" className={makerCardView === "horizontal" ? "active" : ""} onClick={() => setMakerCardView("horizontal")}>
+                Horizontal
+              </button>
+            </div>
+            <p>Preview how your own item appears inside a chat response.</p>
+          </div>
+        </div>
+        <div className="chatgpt-thread">
+          <article className="message user preview-message">
+            <p>{makerPrompt}</p>
+          </article>
+          <article className="message assistant preview-message">
+            <span>ChatGPT</span>
+            <p>I can show this custom item in chat and route the user to the right next step.</p>
+            <div className={`chatgpt-product-card-list ${makerCardView === "horizontal" ? "is-horizontal" : "is-vertical"}`}>
+              <div className={`chatgpt-product-card ${makerCardView === "horizontal" ? "is-horizontal" : ""}`}>
+                <div className="chatgpt-product-category">{makerItemRecord.category_value}</div>
+                <div className="chatgpt-product-image">
+                  <img src={makerResolvedImage} alt="" />
+                </div>
+                <div className="chatgpt-product-copy">
+                  <div className="chatgpt-product-topline">
+                    <strong>{makerItemRecord.title}</strong>
+                    <span>{new Intl.NumberFormat("en-US", { style: "currency", currency: makerItemRecord.price_currency || "USD" }).format((makerItemRecord.price_amount || 0) / 100)}</span>
+                  </div>
+                  <p>{makerItemRecord.description_plain || "No description provided."}</p>
+                  <div className="commerce-meta">
+                    <span>{makerItemRecord.availability_status}</span>
+                  </div>
+                  <div className="chatgpt-product-footer">
+                    <button type="button">{makerItemRecord.action === "none" ? "No action mapped" : makerItemRecord.action.replaceAll("_", " ")}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+          <article className="message user preview-message">
+            <p>Thanks!</p>
+          </article>
+        </div>
+      </section>
+
+      <section className="trace-block">
+        <span>4. Save file</span>
+        <strong>Export your item</strong>
+        <p>Save your custom item as JSON or CSV, then upload it in the sandbox.</p>
+        <div className="empty-state-actions">
+          <button type="button" className="ghost-button" onClick={downloadMakerJson}>
+            Save JSON
+          </button>
+          <button type="button" className="ghost-button" onClick={downloadMakerCsv}>
+            Save CSV
+          </button>
+        </div>
+      </section>
+        </>
+      )}
+    </section>
+  );
+
   const productDrawer = !isCustomExperience && selectedProduct ? (
     <aside className="product-drawer" aria-label="Product detail panel">
       <div className="drawer-controls">
@@ -1223,27 +1710,15 @@ function App() {
             <button type="button" className="active" onClick={() => navigateTo("custom")}>
               Custom sandbox
             </button>
+            <button type="button" onClick={() => navigateTo("maker")}>
+              Product lab
+            </button>
             <button type="button" onClick={() => navigateTo("resources")}>
               Resources
             </button>
           </div>
           <div className="custom-header-auth">
-            {authUser ? (
-              <div className="profile-login-card">
-                {authUser.photoURL ? <img src={authUser.photoURL} alt="" className="profile-avatar-image" /> : <span className="profile-avatar">G</span>}
-                <div className="profile-login-copy">
-                  <strong>{authUser.displayName ?? "Signed in"}</strong>
-                  <button type="button" className="ghost-button" onClick={handleSignOut}>
-                    Sign out
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button type="button" className="profile-login-button" onClick={handleGoogleLogin}>
-                <span className="profile-avatar">G</span>
-                <span>Google login</span>
-              </button>
-            )}
+            {authControl}
           </div>
         </header>
 
@@ -1259,63 +1734,30 @@ function App() {
   if (isResourcesExperience) {
     return (
       <main className="app-shell">
-        <div className="auth-card global-auth">
-          {authUser ? (
-            <>
-              <span>{authUser.displayName ?? authUser.email}</span>
-              <button type="button" className="ghost-button" onClick={handleSignOut}>
-                Sign out
-              </button>
-            </>
-          ) : (
-            <>
-              <span>{isFirebaseConfigured ? "Firebase ready" : "Local mode"}</span>
-              <button type="button" className="ghost-button" onClick={handleGoogleLogin}>
-                Google login
-              </button>
-            </>
-          )}
-        </div>
-
-        <header className="page-hero">
-          <div className="brand-lockup">
-            <img src="/logo_clean.png" alt="" className="brand-mark" />
-            <div>
-              <h1>MRCHT</h1>
-              <p className="eyebrow">Open-source agentic commerce workbench</p>
-            </div>
-          </div>
-          <div className="experience-switch" aria-label="Workbench mode">
-            <button type="button" onClick={() => navigateTo("demo")}>
-              Home demo
-            </button>
-            <button type="button" onClick={() => navigateTo("custom")}>
-              Custom sandbox
-            </button>
-            <button type="button" className="active" onClick={() => navigateTo("resources")}>
-              Resources
-            </button>
-          </div>
-        </header>
-
-        <header className={`compact-dock ${isHeaderCompact ? "visible" : ""}`} aria-hidden={!isHeaderCompact}>
-          <div className="brand-lockup">
+        <header className="custom-page-header">
+          <div className="custom-header-brand">
             <img src="/logo_clean.png" alt="" className="brand-mark" />
             <div>
               <p className="eyebrow">Agentic commerce</p>
               <h1>Resources</h1>
             </div>
           </div>
-          <div className="experience-switch" aria-label="Workbench mode compact">
+          <div className="experience-switch custom-header-switch" aria-label="Workbench mode compact">
             <button type="button" onClick={() => navigateTo("demo")}>
               Home demo
             </button>
             <button type="button" onClick={() => navigateTo("custom")}>
               Custom sandbox
             </button>
+            <button type="button" onClick={() => navigateTo("maker")}>
+              Product lab
+            </button>
             <button type="button" className="active" onClick={() => navigateTo("resources")}>
               Resources
             </button>
+          </div>
+          <div className="custom-header-auth">
+            {authControl}
           </div>
         </header>
 
@@ -1326,24 +1768,47 @@ function App() {
     );
   }
 
+  if (isMakerExperience) {
+    return (
+      <main className="app-shell">
+        <header className="custom-page-header">
+          <div className="custom-header-brand">
+            <img src="/logo_clean.png" alt="" className="brand-mark" />
+            <div>
+              <p className="eyebrow">Agentic commerce</p>
+              <h1>Product lab</h1>
+            </div>
+          </div>
+          <div className="experience-switch custom-header-switch" aria-label="Workbench mode compact">
+            <button type="button" onClick={() => navigateTo("demo")}>
+              Home demo
+            </button>
+            <button type="button" onClick={() => navigateTo("custom")}>
+              Custom sandbox
+            </button>
+            <button type="button" className="active" onClick={() => navigateTo("maker")}>
+              Product lab
+            </button>
+            <button type="button" onClick={() => navigateTo("resources")}>
+              Resources
+            </button>
+          </div>
+          <div className="custom-header-auth">
+            {authControl}
+          </div>
+        </header>
+
+        <section className="workspace home-workspace" aria-label="Product lab">
+          {makerWorkspace}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
-      <div className="auth-card global-auth">
-        {authUser ? (
-          <>
-            <span>{authUser.displayName ?? authUser.email}</span>
-            <button type="button" className="ghost-button" onClick={handleSignOut}>
-              Sign out
-            </button>
-          </>
-        ) : (
-          <>
-            <span>{isFirebaseConfigured ? "Firebase ready" : "Local mode"}</span>
-            <button type="button" className="ghost-button" onClick={handleGoogleLogin}>
-              Google login
-            </button>
-          </>
-        )}
+      <div className="global-auth">
+        {authControl}
       </div>
 
       {isDemoExperience && (
@@ -1362,6 +1827,9 @@ function App() {
             <button type="button" onClick={() => navigateTo("custom")}>
               Custom sandbox
             </button>
+            <button type="button" onClick={() => navigateTo("maker")}>
+              Product lab
+            </button>
             <button type="button" onClick={() => navigateTo("resources")}>
               Resources
             </button>
@@ -1374,7 +1842,7 @@ function App() {
           <img src="/logo_clean.png" alt="" className="brand-mark" />
           <div>
             <p className="eyebrow">Agentic commerce</p>
-            <h1>{isCustomExperience ? "Custom sandbox" : isResourcesExperience ? "Resources" : "Home demo"}</h1>
+            <h1>{isCustomExperience ? "Custom sandbox" : isMakerExperience ? "Product lab" : isResourcesExperience ? "Resources" : "Home demo"}</h1>
           </div>
         </div>
         <div className="experience-switch" aria-label="Workbench mode compact">
@@ -1384,11 +1852,26 @@ function App() {
           <button type="button" className={isCustomExperience ? "active" : ""} onClick={() => navigateTo("custom")}>
             Custom sandbox
           </button>
+          <button type="button" className={isMakerExperience ? "active" : ""} onClick={() => navigateTo("maker")}>
+            Product lab
+          </button>
           <button type="button" className={isResourcesExperience ? "active" : ""} onClick={() => navigateTo("resources")}>
             Resources
           </button>
         </div>
       </header>
+
+      {isDemoExperience && (
+        <section className="demo-prelude" aria-label="Demo pitch">
+          <div className="demo-pitch-block">
+            <p className="demo-prelude-header">Pitch</p>
+            <p>
+              MRCHT is an agentic commerce workbench that turns product data into shopping conversations, showing how recommendations, availability, and checkout actions can happen directly inside chat.
+            </p>
+          </div>
+          <p className="demo-prelude-header demo-try-kicker">Try it out!</p>
+        </section>
+      )}
 
       <section className={`workspace ${isCustomExperience ? "custom-workspace" : "home-workspace"}`} aria-label="Agentic commerce simulator">
         {isCustomExperience && (
@@ -1475,7 +1958,7 @@ function App() {
                   <div className="left-log-panel">
                     <div className="panel-heading compact">
                       <p className="eyebrow">2. Sandbox output</p>
-                      <h2>{customSandboxProducts.length} preview cards</h2>
+                      <h2>{customSandboxProducts.length} Product lab cards</h2>
                     </div>
 
                     <section className="trace-block">
@@ -1508,7 +1991,7 @@ function App() {
         <section className={`chat-panel ${isCustomExperience ? "custom-chat-panel" : ""}`}>
           <div className="panel-heading">
             <p className="eyebrow">{isCustomExperience ? "2. Custom chat" : "2. Demo chat"}</p>
-            <h2>{hasConnectedData ? (isCustomExperience ? "Product preview grid" : "Shopping flow") : "Waiting for data"}</h2>
+            <h2>{hasConnectedData ? (isCustomExperience ? "Product lab" : "Shopping flow") : "Waiting for data"}</h2>
           </div>
 
           {isCustomExperience ? (
@@ -1517,7 +2000,7 @@ function App() {
                 <section className="sandbox-grid-section" aria-label="Custom sandbox product gallery">
                   <div className="sandbox-grid-topline">
                     <h3>{resultHeading(customSandboxProducts)}</h3>
-                    <p>Showing {customSandboxProducts.length} generated previews from the connected catalog. Click a card to load its sample chat.</p>
+                    <p>Showing {customSandboxProducts.length} Product lab items from the connected catalog. Click a card to load its sample chat.</p>
                   </div>
                   <div className="sandbox-product-grid">
                     {customSandboxProducts.map((product) => (
@@ -1607,7 +2090,7 @@ function App() {
           ) : (
             <>
               <div className="prompt-strip">
-                {examplePrompts.map((example) => (
+                {demoQuickPrompts.map((example) => (
                   <button
                     type="button"
                     key={example}

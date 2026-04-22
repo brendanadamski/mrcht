@@ -1,5 +1,34 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
+
+const loadEnvFile = (filePath: string) => {
+  if (!fs.existsSync(filePath)) return;
+  const raw = fs.readFileSync(filePath, "utf8");
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) continue;
+
+    const key = trimmed.slice(0, eqIndex).trim();
+    if (!key || process.env[key] !== undefined) continue;
+
+    let value = trimmed.slice(eqIndex + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value;
+  }
+};
+
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(currentDir, "..");
+loadEnvFile(path.join(projectRoot, ".env"));
+loadEnvFile(path.join(projectRoot, ".env.local"));
 
 type CommerceRow = {
   feed_id: string;
@@ -43,6 +72,31 @@ type CommerceRow = {
   seller_link_url: string;
   tags: string;
   action: "checkout" | "test_drive" | "lead_form";
+};
+
+type AutofillBody = {
+  imageUrl?: string;
+  fields?: {
+    title?: string;
+    description?: string;
+    category?: string;
+    tags?: string;
+    price?: string;
+    currency?: string;
+    availability?: string;
+    action?: string;
+  };
+};
+
+type AutofillResult = {
+  title: string;
+  description: string;
+  category: string;
+  tags: string[];
+  price: number;
+  currency: string;
+  availability: "in_stock" | "limited" | "out_of_stock" | "unknown";
+  action: "checkout" | "test_drive" | "lead_form" | "none";
 };
 
 const productRows: CommerceRow[] = [
@@ -228,11 +282,67 @@ const searchableText = (row: CommerceRow) =>
     .join(" ")
     .toLowerCase();
 
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const extractResponseText = (payload: unknown) => {
+  if (!isRecord(payload)) return "";
+  if (typeof payload.output_text === "string") return payload.output_text;
+
+  const output = payload.output;
+  if (!Array.isArray(output)) return "";
+
+  const textParts: string[] = [];
+  for (const item of output) {
+    if (!isRecord(item)) continue;
+    const content = item.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const part of content) {
+      if (!isRecord(part)) continue;
+      const text = part.text;
+      if (typeof text === "string") textParts.push(text);
+    }
+  }
+
+  return textParts.join("\n").trim();
+};
+
+const parseAutofillFromText = (text: string): Partial<AutofillResult> => {
+  const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return {};
+
+  try {
+    const parsed = JSON.parse(cleaned.slice(start, end + 1)) as unknown;
+    return isRecord(parsed) ? (parsed as Partial<AutofillResult>) : {};
+  } catch {
+    return {};
+  }
+};
+
+const normalizeAutofillResult = (value: Partial<AutofillResult>, fallback: AutofillBody["fields"]): AutofillResult => {
+  const availability = value.availability;
+  const action = value.action;
+  const normalizedPrice = Number(value.price);
+
+  return {
+    title: typeof value.title === "string" && value.title.trim() ? value.title.trim() : fallback?.title?.trim() || "Custom item",
+    description: typeof value.description === "string" && value.description.trim() ? value.description.trim() : fallback?.description?.trim() || "No description provided.",
+    category: typeof value.category === "string" && value.category.trim() ? value.category.trim() : fallback?.category?.trim() || "Custom > Featured Item",
+    tags: Array.isArray(value.tags) ? value.tags.map((tag) => String(tag).trim()).filter(Boolean) : [],
+    price: Number.isFinite(normalizedPrice) && normalizedPrice > 0 ? normalizedPrice : Math.max(1, Number(fallback?.price) || 49),
+    currency: typeof value.currency === "string" && value.currency.trim() ? value.currency.trim().toUpperCase() : (fallback?.currency?.trim().toUpperCase() || "USD"),
+    availability: availability === "in_stock" || availability === "limited" || availability === "out_of_stock" || availability === "unknown" ? availability : "in_stock",
+    action: action === "checkout" || action === "test_drive" || action === "lead_form" || action === "none" ? action : "checkout"
+  };
+};
+
 const app = express();
 const port = Number(process.env.PORT ?? 8787);
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "8mb" }));
 
 app.get("/health", (_request, response) => {
   response.json({ ok: true, service: "agentic-commerce-workbench-api" });
@@ -296,6 +406,81 @@ app.post("/mock-api/actions/test-drive", (request, response) => {
     reservationId: `td_${Date.now()}`,
     request: request.body
   });
+});
+
+app.post("/mock-api/autofill-item", async (request, response) => {
+  const body = (request.body ?? {}) as AutofillBody;
+  const imageUrl = String(body.imageUrl ?? "").trim();
+
+  if (!imageUrl) {
+    response.status(400).json({ error: "imageUrl is required." });
+    return;
+  }
+
+  if (imageUrl.startsWith("data:image/") && Buffer.byteLength(imageUrl, "utf8") > 2_000_000) {
+    response.status(413).json({ error: "Image payload is too large. Upload a smaller image and try again." });
+    return;
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    response.status(503).json({ error: "OPENAI_API_KEY is not configured on the backend." });
+    return;
+  }
+
+  try {
+    const model = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+    const openAiResponse = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text:
+                  'You are filling commerce product fields from an image. Return ONLY JSON with keys: title, description, category, tags (array of strings), price (number in dollars), currency, availability (in_stock|limited|out_of_stock|unknown), action (checkout|test_drive|lead_form|none). Keep values realistic and concise.'
+              }
+            ]
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: "Analyze this product photo and infer sensible catalog fields."
+              },
+              {
+                type: "input_image",
+                image_url: imageUrl
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    if (!openAiResponse.ok) {
+      const errorText = await openAiResponse.text();
+      response.status(502).json({ error: `OpenAI request failed: ${errorText}` });
+      return;
+    }
+
+    const payload = (await openAiResponse.json()) as unknown;
+    const text = extractResponseText(payload);
+    const parsed = parseAutofillFromText(text);
+    const normalized = normalizeAutofillResult(parsed, body.fields);
+
+    response.json(normalized);
+  } catch (error) {
+    response.status(500).json({ error: error instanceof Error ? error.message : "Autofill failed." });
+  }
 });
 
 app.listen(port, () => {
