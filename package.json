@@ -1,0 +1,45 @@
+{
+  "name": "agentic-commerce-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source sandbox for simulating agentic commerce data, APIs, and ChatGPT-style shopping flows.",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run dev:frontend",
+    "dev:frontend": "vite --host 0.0.0.0",
+    "dev:backend": "tsx server/index.ts",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "firebase:emulators": "firebase emulators:start --only auth,firestore,storage,hosting"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "firebase": "^12.4.0",
+    "multer": "^2.0.2",
+    "papaparse": "^5.5.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.5.2",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "eslint": "^9.36.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.4.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.45.0",
+    "vite": "^7.1.7"
+  }
+}

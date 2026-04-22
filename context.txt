@@ -1,0 +1,17 @@
+REQUIRED CORE
+├── Header
+├── Product
+│   └── Variant
+
+OPTIONAL (BUT STRUCTURED)
+├── Price
+├── Media
+├── Barcode
+├── Category
+├── Seller → Link
+├── UnitPrice → Measure + Reference
+
+OPTIONAL (FREE-FORM)
+├── Description
+├── Availability
+├── Condition
