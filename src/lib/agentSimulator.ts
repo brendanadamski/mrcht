@@ -40,19 +40,42 @@ const inferTool = (prompt: string, product?: Product): ToolName => {
   return "discover_products";
 };
 
+const hardcodedResultLimit = (prompt: string) => {
+  const normalized = prompt.trim().toLowerCase();
+
+  // Keep exactly one 2-item return for demo behavior.
+  if (normalized.includes("find two giftable products i can checkout right now")) return 2;
+
+  if (
+    normalized.includes("compare three") ||
+    normalized.includes("show me three") ||
+    normalized.includes("travel kit") ||
+    normalized.includes("work-from-home setup") ||
+    normalized.includes("horizontal layout") ||
+    normalized.includes("horizontal format")
+  ) {
+    return 3;
+  }
+
+  return 1;
+};
+
 export const simulateAgentTurn = (prompt: string, products: Product[]) => {
+  const resultLimit = hardcodedResultLimit(prompt);
   const scored = products
     .map((product) => ({ product, score: scoreProduct(prompt, product) }))
     .sort((a, b) => b.score - a.score || a.product.price - b.product.price);
 
-  const matches = scored.filter((item) => item.score > 0).slice(0, 3).map((item) => item.product);
-  const fallbackMatches = products.slice(0, 3);
-  const selected = matches[0] ?? products[0];
+  const strongMatches = scored.filter((item) => item.score > 0).map((item) => item.product);
+  const rankedMatches = scored.map((item) => item.product);
+  const visibleMatches = [...strongMatches, ...rankedMatches]
+    .filter((product, index, list) => list.findIndex((candidate) => candidate.id === product.id) === index)
+    .slice(0, resultLimit);
+  const selected = strongMatches[0] ?? visibleMatches[0] ?? products[0];
   const selectedTool = inferTool(prompt, selected);
-  const visibleMatches = matches.length > 0 ? matches : fallbackMatches;
   const warnings: string[] = [];
 
-  if (matches.length === 0) warnings.push("No strong semantic match found; returning default catalog candidates.");
+  if (strongMatches.length === 0) warnings.push("No strong semantic match found; returning default catalog candidates.");
   if (selected?.availability === "unknown") warnings.push("Selected product has unknown availability.");
   if (selected?.action === "none" && selectedTool === "initiate_action") warnings.push("No transaction action is mapped for this item.");
 
@@ -75,7 +98,7 @@ export const simulateAgentTurn = (prompt: string, products: Product[]) => {
       user_prompt: prompt,
       filters: {
         tokens: tokenize(prompt),
-        result_limit: 3
+        result_limit: resultLimit
       },
       selected_product_id: selected?.id ?? null
     },

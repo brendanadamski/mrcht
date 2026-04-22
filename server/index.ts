@@ -99,173 +99,361 @@ type AutofillResult = {
   action: "checkout" | "test_drive" | "lead_form" | "none";
 };
 
+const DEMO_FEED_ID = "feed_mrcht_city_commuter_v2";
+const DEMO_ACCOUNT_ID = "acct_mrcht_demo";
+const DEMO_MERCHANT = "MRCHT";
+const DEMO_COUNTRY = "US";
+
+type CatalogSeed = {
+  id: string;
+  title: string;
+  description: string;
+  slug: string;
+  imageUrl: string;
+  imageAlt: string;
+  variantId: string;
+  variantTitle: string;
+  variantDescription: string;
+  barcode: string;
+  priceAmount: number;
+  listPriceAmount: number;
+  availabilityAvailable: boolean;
+  availabilityStatus: string;
+  category: string;
+  color: string;
+  size: string;
+  tags: string;
+  action: "checkout" | "test_drive" | "lead_form";
+  sellerLinkType?: string;
+  sellerLinkTitle?: string;
+  sellerLinkUrl?: string;
+  unitPrice?: {
+    amount: number;
+    currency: string;
+    measureValue: number;
+    measureUnit: string;
+    referenceValue: number;
+    referenceUnit: string;
+  };
+};
+
+const makeRow = (seed: CatalogSeed): CommerceRow => ({
+  feed_id: DEMO_FEED_ID,
+  account_id: DEMO_ACCOUNT_ID,
+  target_merchant: DEMO_MERCHANT,
+  target_country: DEMO_COUNTRY,
+  id: seed.id,
+  title: seed.title,
+  description_plain: seed.description,
+  url: `https://example.com/products/${seed.slug}`,
+  product_media_url: seed.imageUrl,
+  product_media_alt_text: seed.imageAlt,
+  variant_id: seed.variantId,
+  variant_title: seed.variantTitle,
+  variant_description_plain: seed.variantDescription,
+  variant_url: `https://example.com/products/${seed.slug}?variant=${encodeURIComponent(seed.variantTitle.toLowerCase().replace(/\s+/g, "-"))}`,
+  variant_media_url: seed.imageUrl,
+  variant_media_alt_text: seed.imageAlt,
+  variant_barcode_type: "gtin",
+  variant_barcode_value: seed.barcode,
+  price_amount: seed.priceAmount,
+  price_currency: "USD",
+  list_price_amount: seed.listPriceAmount,
+  list_price_currency: "USD",
+  unit_price_amount: seed.unitPrice?.amount,
+  unit_price_currency: seed.unitPrice?.currency,
+  unit_price_measure_value: seed.unitPrice?.measureValue,
+  unit_price_measure_unit: seed.unitPrice?.measureUnit,
+  unit_price_reference_value: seed.unitPrice?.referenceValue,
+  unit_price_reference_unit: seed.unitPrice?.referenceUnit,
+  availability_available: seed.availabilityAvailable,
+  availability_status: seed.availabilityStatus,
+  category_value: seed.category,
+  category_taxonomy: "merchant",
+  condition: "new",
+  option_color: seed.color,
+  option_size: seed.size,
+  seller_name: DEMO_MERCHANT,
+  seller_link_type: seed.sellerLinkType ?? "faq",
+  seller_link_title: seed.sellerLinkTitle ?? "Commuter FAQ",
+  seller_link_url: seed.sellerLinkUrl ?? "https://example.com/help/commuter-faq",
+  tags: seed.tags,
+  action: seed.action
+});
+
 const productRows: CommerceRow[] = [
-  {
-    feed_id: "feed_mrcht_demo_v1",
-    account_id: "acct_mrcht_demo",
-    target_merchant: "MRCHT",
-    target_country: "US",
-    id: "SKU-MRCHT-TEE-BLUE",
-    title: "MRCHT Blue Everyday Tee",
-    description_plain: "Soft cotton tee in a bright blue colorway for daily wear.",
-    url: "https://example.com/products/sku-mrcht-tee-blue",
-    product_media_url: "https://images.pexels.com/photos/20228403/pexels-photo-20228403.jpeg?auto=compress&cs=tinysrgb&w=1200",
-    product_media_alt_text: "Blue everyday tee hero image",
-    variant_id: "SKU-MRCHT-TEE-BLUE-M",
-    variant_title: "Blue / Medium",
-    variant_description_plain: "Blue cotton tee in size medium.",
-    variant_url: "https://example.com/products/sku-mrcht-tee-blue?variant=medium",
-    variant_media_url: "https://images.pexels.com/photos/20228403/pexels-photo-20228403.jpeg?auto=compress&cs=tinysrgb&w=1200",
-    variant_media_alt_text: "Blue cotton t-shirt",
-    variant_barcode_type: "gtin",
-    variant_barcode_value: "00012345678905",
-    price_amount: 2500,
-    price_currency: "USD",
-    list_price_amount: 3200,
-    list_price_currency: "USD",
-    unit_price_amount: 2500,
-    unit_price_currency: "USD",
-    unit_price_measure_value: 1,
-    unit_price_measure_unit: "ea",
-    unit_price_reference_value: 1,
-    unit_price_reference_unit: "ea",
-    availability_available: true,
-    availability_status: "in_stock",
-    category_value: "Apparel & Accessories > Clothing > Shirts & Tops",
-    category_taxonomy: "merchant",
-    condition: "new",
-    option_color: "blue",
-    option_size: "M",
-    seller_name: "MRCHT",
-    seller_link_type: "faq",
-    seller_link_title: "Shopping FAQ",
-    seller_link_url: "https://example.com/help/shopping-faq",
-    tags: "shirt;tee;cotton;everyday",
+  makeRow({
+    id: "SKU-MRCHT-BACKPACK-METRO-20",
+    title: "Metro Commuter Backpack 20L",
+    description: "Water-resistant commuter backpack with suspended laptop sleeve, trolley pass-through, and hidden passport pocket.",
+    slug: "metro-commuter-backpack-20l",
+    imageUrl: "https://images.pexels.com/photos/2905238/pexels-photo-2905238.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Commuter backpack on a train seat",
+    variantId: "SKU-MRCHT-BACKPACK-METRO-20-BLK",
+    variantTitle: "Black / 20L",
+    variantDescription: "Compact 20L commuter backpack for daily transit.",
+    barcode: "00012345679901",
+    priceAmount: 12900,
+    listPriceAmount: 15900,
+    availabilityAvailable: true,
+    availabilityStatus: "in_stock",
+    category: "Luggage & Bags > Backpacks",
+    color: "black",
+    size: "20L",
+    tags: "commute;backpack;laptop;travel",
     action: "checkout"
-  },
-  {
-    feed_id: "feed_mrcht_demo_v1",
-    account_id: "acct_mrcht_demo",
-    target_merchant: "MRCHT",
-    target_country: "US",
-    id: "SKU-MRCHT-DUFFEL-ATLAS",
-    title: "Atlas Weekender Duffel",
-    description_plain: "Carry-on duffel with a shoe tunnel, laptop sleeve, recycled shell, and quick-access side pocket.",
-    url: "https://example.com/products/atlas-weekender-duffel",
-    product_media_url: "https://images.pexels.com/photos/13872590/pexels-photo-13872590.jpeg?auto=compress&cs=tinysrgb&w=1200",
-    product_media_alt_text: "Atlas duffel bag hero image",
-    variant_id: "SKU-MRCHT-DUFFEL-ATLAS-STD",
-    variant_title: "Standard",
-    variant_description_plain: "Travel-ready duffel with organized storage and carry-on dimensions.",
-    variant_url: "https://example.com/products/atlas-weekender-duffel?variant=standard",
-    variant_media_url: "https://images.pexels.com/photos/13872590/pexels-photo-13872590.jpeg?auto=compress&cs=tinysrgb&w=1200",
-    variant_media_alt_text: "Blue and tan duffel bag",
-    variant_barcode_type: "gtin",
-    variant_barcode_value: "00012345678912",
-    price_amount: 14800,
-    price_currency: "USD",
-    list_price_amount: 17500,
-    list_price_currency: "USD",
-    unit_price_amount: 14800,
-    unit_price_currency: "USD",
-    unit_price_measure_value: 1,
-    unit_price_measure_unit: "ea",
-    unit_price_reference_value: 1,
-    unit_price_reference_unit: "ea",
-    availability_available: true,
-    availability_status: "backorder",
-    category_value: "Luggage & Bags > Duffel Bags",
-    category_taxonomy: "merchant",
-    condition: "new",
-    option_color: "navy",
-    option_size: "One Size",
-    seller_name: "MRCHT",
-    seller_link_type: "shipping_policy",
-    seller_link_title: "Shipping Policy",
-    seller_link_url: "https://example.com/policies/shipping",
-    tags: "travel;duffel;carry-on;weekender",
+  }),
+  makeRow({
+    id: "SKU-MRCHT-SLING-TRANSIT-5",
+    title: "Transit Sling 5L",
+    description: "Crossbody sling with quick-draw front pocket and tablet compartment for city movement.",
+    slug: "transit-sling-5l",
+    imageUrl: "https://images.pexels.com/photos/1545743/pexels-photo-1545743.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Compact sling bag worn crossbody",
+    variantId: "SKU-MRCHT-SLING-TRANSIT-5-GRY",
+    variantTitle: "Graphite / 5L",
+    variantDescription: "Hands-free commuter sling for small essentials.",
+    barcode: "00012345679918",
+    priceAmount: 6900,
+    listPriceAmount: 8900,
+    availabilityAvailable: true,
+    availabilityStatus: "in_stock",
+    category: "Luggage & Bags > Backpacks & Sling Bags",
+    color: "graphite",
+    size: "5L",
+    tags: "commute;sling;edc;city",
     action: "checkout"
-  },
-  {
-    feed_id: "feed_mrcht_demo_v1",
-    account_id: "acct_mrcht_demo",
-    target_merchant: "MRCHT",
-    target_country: "US",
-    id: "SKU-MRCHT-GRINDER-DIAL",
-    title: "Dial-In Burr Grinder",
-    description_plain: "Compact grinder with 48 settings, low-retention dosing, and a removable anti-static cup.",
-    url: "https://example.com/products/dial-in-burr-grinder",
-    product_media_url: "https://images.pexels.com/photos/12859329/pexels-photo-12859329.jpeg?auto=compress&cs=tinysrgb&w=1200",
-    product_media_alt_text: "Dial-In burr grinder hero image",
-    variant_id: "SKU-MRCHT-GRINDER-DIAL-STD",
-    variant_title: "Standard",
-    variant_description_plain: "Precision coffee grinder tuned for espresso and filter brewing.",
-    variant_url: "https://example.com/products/dial-in-burr-grinder?variant=standard",
-    variant_media_url: "https://images.pexels.com/photos/12859329/pexels-photo-12859329.jpeg?auto=compress&cs=tinysrgb&w=1200",
-    variant_media_alt_text: "Coffee grinder in use",
-    variant_barcode_type: "gtin",
-    variant_barcode_value: "00012345678929",
-    price_amount: 22900,
-    price_currency: "USD",
-    list_price_amount: 24900,
-    list_price_currency: "USD",
-    unit_price_amount: 954,
-    unit_price_currency: "USD",
-    unit_price_measure_value: 12,
-    unit_price_measure_unit: "oz",
-    unit_price_reference_value: 12,
-    unit_price_reference_unit: "oz",
-    availability_available: true,
-    availability_status: "in_stock",
-    category_value: "Kitchen > Coffee Grinders",
-    category_taxonomy: "merchant",
-    condition: "new",
-    option_color: "black",
-    option_size: "Standard",
-    seller_name: "MRCHT",
-    seller_link_type: "refund_policy",
-    seller_link_title: "Returns & Refunds",
-    seller_link_url: "https://example.com/policies/refunds",
-    tags: "coffee;espresso;grinder;kitchen",
+  }),
+  makeRow({
+    id: "SKU-MRCHT-ORGANIZER-CABLE-TECH",
+    title: "Tech Cable Organizer Pouch",
+    description: "Structured organizer with elastic loops and mesh sleeves for chargers, cables, and adapters.",
+    slug: "tech-cable-organizer-pouch",
+    imageUrl: "https://images.pexels.com/photos/4219862/pexels-photo-4219862.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Tech organizer with cables and adapters",
+    variantId: "SKU-MRCHT-ORGANIZER-CABLE-TECH-STD",
+    variantTitle: "Standard",
+    variantDescription: "Slim travel organizer for commute tech gear.",
+    barcode: "00012345679925",
+    priceAmount: 3900,
+    listPriceAmount: 5200,
+    availabilityAvailable: true,
+    availabilityStatus: "in_stock",
+    category: "Electronics > Computer Accessories",
+    color: "charcoal",
+    size: "Standard",
+    tags: "organizer;cables;tech;travel",
     action: "checkout"
-  },
-  {
-    feed_id: "feed_mrcht_demo_v1",
-    account_id: "acct_mrcht_demo",
-    target_merchant: "MRCHT",
-    target_country: "US",
-    id: "SKU-MRCHT-CHAIR-NORTHSTAR",
-    title: "Northstar Task Chair",
-    description_plain: "Adjustable work chair with breathable mesh, lumbar support, and a narrow footprint.",
-    url: "https://example.com/products/northstar-task-chair",
-    product_media_url: "https://images.pexels.com/photos/4305707/pexels-photo-4305707.jpeg?auto=compress&cs=tinysrgb&w=1200",
-    product_media_alt_text: "Northstar task chair hero image",
-    variant_id: "SKU-MRCHT-CHAIR-NORTHSTAR-STD",
-    variant_title: "Standard",
-    variant_description_plain: "Ergonomic office chair with mesh support and compact footprint.",
-    variant_url: "https://example.com/products/northstar-task-chair?variant=standard",
-    variant_media_url: "https://images.pexels.com/photos/4305707/pexels-photo-4305707.jpeg?auto=compress&cs=tinysrgb&w=1200",
-    variant_media_alt_text: "Office chair near desk",
-    variant_barcode_type: "gtin",
-    variant_barcode_value: "00012345678936",
-    price_amount: 39500,
-    price_currency: "USD",
-    list_price_amount: 44900,
-    list_price_currency: "USD",
-    availability_available: false,
-    availability_status: "out_of_stock",
-    category_value: "Furniture > Office Chairs",
-    category_taxonomy: "merchant",
-    condition: "new",
-    option_color: "graphite",
-    option_size: "Standard",
-    seller_name: "MRCHT",
-    seller_link_type: "faq",
-    seller_link_title: "Restock FAQ",
-    seller_link_url: "https://example.com/help/restocks",
-    tags: "chair;ergonomic;office;home office",
-    action: "lead_form"
-  }
+  }),
+  makeRow({
+    id: "SKU-MRCHT-MUG-COMMUTE-16",
+    title: "Commuter Insulated Mug 16oz",
+    description: "Leak-resistant travel mug with ceramic-lined interior and one-handed flip lid.",
+    slug: "commuter-insulated-mug-16oz",
+    imageUrl: "https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Insulated mug on office desk",
+    variantId: "SKU-MRCHT-MUG-COMMUTE-16-SAND",
+    variantTitle: "Sand / 16oz",
+    variantDescription: "Daily commuter mug that keeps drinks warm through morning transit.",
+    barcode: "00012345679932",
+    priceAmount: 3400,
+    listPriceAmount: 4400,
+    availabilityAvailable: true,
+    availabilityStatus: "in_stock",
+    category: "Home & Garden > Kitchen & Dining > Drinkware",
+    color: "sand",
+    size: "16oz",
+    tags: "mug;coffee;commute;insulated",
+    action: "checkout",
+    sellerLinkType: "shipping_policy",
+    sellerLinkTitle: "Shipping Policy",
+    sellerLinkUrl: "https://example.com/policies/shipping",
+    unitPrice: {
+      amount: 212,
+      currency: "USD",
+      measureValue: 1,
+      measureUnit: "oz",
+      referenceValue: 1,
+      referenceUnit: "oz"
+    }
+  }),
+  makeRow({
+    id: "SKU-MRCHT-UMBRELLA-QUICKDRY",
+    title: "QuickDry Compact Umbrella",
+    description: "Wind-resistant compact umbrella with auto-open button and reflective edge trim.",
+    slug: "quickdry-compact-umbrella",
+    imageUrl: "https://images.pexels.com/photos/163255/schirm-regenschirm-rain-protection-163255.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Compact umbrella for rainy commute",
+    variantId: "SKU-MRCHT-UMBRELLA-QUICKDRY-NAVY",
+    variantTitle: "Navy / One Size",
+    variantDescription: "Pocketable commuter umbrella for sudden rain.",
+    barcode: "00012345679949",
+    priceAmount: 2800,
+    listPriceAmount: 3600,
+    availabilityAvailable: true,
+    availabilityStatus: "limited",
+    category: "Home & Garden > Umbrellas",
+    color: "navy",
+    size: "One Size",
+    tags: "umbrella;rain;commute;weather",
+    action: "checkout"
+  }),
+  makeRow({
+    id: "SKU-MRCHT-TEE-MERINO-CITY",
+    title: "City Merino Commuter Tee",
+    description: "Odor-resistant merino blend tee designed for all-day wear and active commuting.",
+    slug: "city-merino-commuter-tee",
+    imageUrl: "https://images.pexels.com/photos/6311613/pexels-photo-6311613.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Minimal merino t-shirt",
+    variantId: "SKU-MRCHT-TEE-MERINO-CITY-M",
+    variantTitle: "Slate / M",
+    variantDescription: "Breathable merino tee for office and post-work movement.",
+    barcode: "00012345679956",
+    priceAmount: 5200,
+    listPriceAmount: 6800,
+    availabilityAvailable: true,
+    availabilityStatus: "in_stock",
+    category: "Apparel & Accessories > Clothing > Shirts & Tops",
+    color: "slate",
+    size: "M",
+    tags: "apparel;merino;commute;everyday",
+    action: "checkout"
+  }),
+  makeRow({
+    id: "SKU-MRCHT-SHELL-PACKABLE",
+    title: "Packable Rain Shell",
+    description: "Lightweight waterproof shell that packs into its own pocket for unpredictable weather.",
+    slug: "packable-rain-shell",
+    imageUrl: "https://images.pexels.com/photos/936094/pexels-photo-936094.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Packable rain shell jacket",
+    variantId: "SKU-MRCHT-SHELL-PACKABLE-L",
+    variantTitle: "Black / L",
+    variantDescription: "Weatherproof outer layer sized for commuting backpacks.",
+    barcode: "00012345679963",
+    priceAmount: 11900,
+    listPriceAmount: 14900,
+    availabilityAvailable: true,
+    availabilityStatus: "backorder",
+    category: "Apparel & Accessories > Clothing > Outerwear",
+    color: "black",
+    size: "L",
+    tags: "rain shell;outerwear;commute;travel",
+    action: "lead_form",
+    sellerLinkType: "faq",
+    sellerLinkTitle: "Restock FAQ",
+    sellerLinkUrl: "https://example.com/help/restocks"
+  }),
+  makeRow({
+    id: "SKU-MRCHT-EARBUDS-CITY-ANC",
+    title: "City ANC Earbuds",
+    description: "Noise-canceling earbuds with transparency mode tuned for transit announcements.",
+    slug: "city-anc-earbuds",
+    imageUrl: "https://images.pexels.com/photos/3780681/pexels-photo-3780681.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Wireless earbuds and charging case",
+    variantId: "SKU-MRCHT-EARBUDS-CITY-ANC-BLK",
+    variantTitle: "Black",
+    variantDescription: "Compact ANC earbuds for subway and office transitions.",
+    barcode: "00012345679970",
+    priceAmount: 14900,
+    listPriceAmount: 18900,
+    availabilityAvailable: true,
+    availabilityStatus: "in_stock",
+    category: "Electronics > Headphones",
+    color: "black",
+    size: "Standard",
+    tags: "audio;earbuds;anc;commute",
+    action: "test_drive",
+    sellerLinkType: "terms_of_service",
+    sellerLinkTitle: "Device Terms",
+    sellerLinkUrl: "https://example.com/policies/terms"
+  }),
+  makeRow({
+    id: "SKU-MRCHT-POWERBANK-10000",
+    title: "FastCharge Power Bank 10000mAh",
+    description: "Slim USB-C power bank with pass-through charging and cable indicator lights.",
+    slug: "fastcharge-power-bank-10000mah",
+    imageUrl: "https://images.pexels.com/photos/4526407/pexels-photo-4526407.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Portable power bank on work table",
+    variantId: "SKU-MRCHT-POWERBANK-10000-BLK",
+    variantTitle: "Black / 10000mAh",
+    variantDescription: "All-day backup battery for phone and earbuds.",
+    barcode: "00012345679987",
+    priceAmount: 4900,
+    listPriceAmount: 6500,
+    availabilityAvailable: true,
+    availabilityStatus: "in_stock",
+    category: "Electronics > Batteries & Power",
+    color: "black",
+    size: "10000mAh",
+    tags: "power bank;charging;travel;electronics",
+    action: "checkout"
+  }),
+  makeRow({
+    id: "SKU-MRCHT-CABLEKIT-TRAVEL",
+    title: "Travel Cable Kit",
+    description: "Compact cable kit with USB-C, Lightning, and mini adapter set for commuter bags.",
+    slug: "travel-cable-kit",
+    imageUrl: "https://images.pexels.com/photos/7580521/pexels-photo-7580521.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Small travel cable set in case",
+    variantId: "SKU-MRCHT-CABLEKIT-TRAVEL-STD",
+    variantTitle: "Standard",
+    variantDescription: "Core travel cables and adapters in one pocket-sized kit.",
+    barcode: "00012345679994",
+    priceAmount: 2600,
+    listPriceAmount: 3400,
+    availabilityAvailable: true,
+    availabilityStatus: "in_stock",
+    category: "Electronics > Cables & Adapters",
+    color: "graphite",
+    size: "Standard",
+    tags: "cables;adapters;travel;tech",
+    action: "checkout"
+  }),
+  makeRow({
+    id: "SKU-MRCHT-SLEEVE-LAPTOP-14",
+    title: "Transit Laptop Sleeve 14in",
+    description: "Padded laptop sleeve with magnetic flap and front document pocket for commute-ready carry.",
+    slug: "transit-laptop-sleeve-14in",
+    imageUrl: "https://images.pexels.com/photos/1714208/pexels-photo-1714208.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Laptop sleeve and notebook on desk",
+    variantId: "SKU-MRCHT-SLEEVE-LAPTOP-14-GRY",
+    variantTitle: "Graphite / 14in",
+    variantDescription: "Protective sleeve sized for modern 14-inch laptops.",
+    barcode: "00012345680007",
+    priceAmount: 4200,
+    listPriceAmount: 5600,
+    availabilityAvailable: true,
+    availabilityStatus: "limited",
+    category: "Electronics > Laptop Accessories",
+    color: "graphite",
+    size: "14in",
+    tags: "laptop;sleeve;work;commute",
+    action: "checkout"
+  }),
+  makeRow({
+    id: "SKU-MRCHT-CUBES-COMPRESS-3",
+    title: "Compression Packing Cubes Set",
+    description: "Three-piece compression cube set to organize gym gear and spare layers for longer days.",
+    slug: "compression-packing-cubes-set",
+    imageUrl: "https://images.pexels.com/photos/2064344/pexels-photo-2064344.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    imageAlt: "Packing cubes arranged in travel bag",
+    variantId: "SKU-MRCHT-CUBES-COMPRESS-3-NAVY",
+    variantTitle: "Navy / 3-piece",
+    variantDescription: "Lightweight cube set that maximizes bag space for daily carry.",
+    barcode: "00012345680014",
+    priceAmount: 3800,
+    listPriceAmount: 5000,
+    availabilityAvailable: false,
+    availabilityStatus: "out_of_stock",
+    category: "Luggage & Bags > Travel Organizers",
+    color: "navy",
+    size: "3-piece",
+    tags: "packing cubes;organizer;travel;commute",
+    action: "lead_form",
+    sellerLinkType: "faq",
+    sellerLinkTitle: "Restock FAQ",
+    sellerLinkUrl: "https://example.com/help/restocks"
+  })
 ];
 
 const searchableText = (row: CommerceRow) =>
@@ -338,14 +526,314 @@ const normalizeAutofillResult = (value: Partial<AutofillResult>, fallback: Autof
   };
 };
 
+type SpecDescription = {
+  plain?: string;
+  html?: string;
+  markdown?: string;
+};
+
+type SpecPrice = {
+  amount: number;
+  currency: string;
+};
+
+type SpecMeasure = {
+  value: number;
+  unit: string;
+};
+
+type SpecUnitPrice = {
+  amount: number;
+  currency: string;
+  measure: SpecMeasure;
+  reference: SpecMeasure;
+};
+
+type SpecBarcode = {
+  type: string;
+  value: string;
+};
+
+type SpecMedia = {
+  type: string;
+  url: string;
+  alt_text?: string;
+  width?: number;
+  height?: number;
+};
+
+type SpecCategory = {
+  value: string;
+  taxonomy?: string;
+};
+
+type SpecVariantOption = {
+  name: string;
+  value: string;
+};
+
+type SpecSellerLink = {
+  type: string;
+  title?: string;
+  url: string;
+};
+
+type SpecSeller = {
+  name?: string;
+  links?: SpecSellerLink[];
+};
+
+type SpecAvailability = {
+  available?: boolean;
+  status?: string;
+};
+
+type SpecVariant = {
+  id: string;
+  title: string;
+  description?: SpecDescription;
+  url?: string;
+  barcodes?: SpecBarcode[];
+  price?: SpecPrice;
+  list_price?: SpecPrice;
+  unit_price?: SpecUnitPrice;
+  availability?: SpecAvailability;
+  categories?: SpecCategory[];
+  condition?: string[];
+  variant_options?: SpecVariantOption[];
+  media?: SpecMedia[];
+  seller?: SpecSeller;
+};
+
+type SpecProduct = {
+  id: string;
+  title?: string;
+  description?: SpecDescription;
+  url?: string;
+  media?: SpecMedia[];
+  variants: SpecVariant[];
+};
+
+type ProductFeed = {
+  id: string;
+  target_country?: string;
+  updated_at?: string;
+  products: SpecProduct[];
+};
+
+const nowIso = () => new Date().toISOString();
+
+const toSpecMedia = (url: string, altText?: string): SpecMedia[] =>
+  url
+    ? [
+        {
+          type: "image",
+          url,
+          alt_text: altText || undefined
+        }
+      ]
+    : [];
+
+const rowToSpecProduct = (row: CommerceRow): SpecProduct => ({
+  id: row.id,
+  title: row.title,
+  description: { plain: row.description_plain },
+  url: row.url,
+  media: toSpecMedia(row.product_media_url, row.product_media_alt_text),
+  variants: [
+    {
+      id: row.variant_id,
+      title: row.variant_title,
+      description: { plain: row.variant_description_plain },
+      url: row.variant_url,
+      barcodes: [{ type: row.variant_barcode_type, value: row.variant_barcode_value }],
+      price: { amount: row.price_amount, currency: row.price_currency },
+      list_price: { amount: row.list_price_amount, currency: row.list_price_currency },
+      unit_price:
+        row.unit_price_amount && row.unit_price_currency && row.unit_price_measure_value && row.unit_price_measure_unit && row.unit_price_reference_value && row.unit_price_reference_unit
+          ? {
+              amount: row.unit_price_amount,
+              currency: row.unit_price_currency,
+              measure: { value: row.unit_price_measure_value, unit: row.unit_price_measure_unit },
+              reference: { value: row.unit_price_reference_value, unit: row.unit_price_reference_unit }
+            }
+          : undefined,
+      availability: {
+        available: row.availability_available,
+        status: row.availability_status
+      },
+      categories: [{ value: row.category_value, taxonomy: row.category_taxonomy }],
+      condition: [row.condition],
+      variant_options: [
+        { name: "color", value: row.option_color },
+        { name: "size", value: row.option_size }
+      ],
+      media: toSpecMedia(row.variant_media_url, row.variant_media_alt_text),
+      seller: {
+        name: row.seller_name,
+        links: [
+          {
+            type: row.seller_link_type,
+            title: row.seller_link_title,
+            url: row.seller_link_url
+          }
+        ]
+      }
+    }
+  ]
+});
+
+const catalogById = new Map(productRows.map((row) => [row.id, row]));
+
+const defaultFeed: ProductFeed = {
+  id: DEMO_FEED_ID,
+  target_country: DEMO_COUNTRY,
+  updated_at: nowIso(),
+  products: productRows.map(rowToSpecProduct)
+};
+
+const feedStore = new Map<string, ProductFeed>([[defaultFeed.id, defaultFeed]]);
+
+const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const deepMerge = (base: unknown, incoming: unknown): unknown => {
+  if (!isObject(base)) return incoming;
+  if (!isObject(incoming)) return incoming;
+
+  const result: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      result[key] = value;
+      continue;
+    }
+    result[key] = key in result ? deepMerge(result[key], value) : value;
+  }
+  return result;
+};
+
+const validCountryCode = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const code = value.trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(code) ? code : undefined;
+};
+
 const app = express();
 const port = Number(process.env.PORT ?? 8787);
 
 app.use(cors());
 app.use(express.json({ limit: "8mb" }));
+app.use((request, response, next) => {
+  if (!request.path.startsWith("/product_feeds")) {
+    next();
+    return;
+  }
+
+  const startedAt = Date.now();
+  console.log(`[feeds] > ${request.method} ${request.originalUrl}`);
+
+  response.on("finish", () => {
+    const durationMs = Date.now() - startedAt;
+    console.log(`[feeds] < ${response.statusCode} ${request.method} ${request.originalUrl} (${durationMs}ms)`);
+  });
+
+  next();
+});
 
 app.get("/health", (_request, response) => {
   response.json({ ok: true, service: "agentic-commerce-workbench-api" });
+});
+
+app.get("/product_feeds/:id", (request, response) => {
+  const feed = feedStore.get(request.params.id);
+  if (!feed) {
+    response.status(404).json({ error: "Feed not found" });
+    return;
+  }
+
+  response.json({
+    id: feed.id,
+    target_country: feed.target_country,
+    updated_at: feed.updated_at
+  });
+});
+
+app.post("/product_feeds", (request, response) => {
+  const requestedCountry = validCountryCode(request.body?.target_country);
+  if (request.body?.target_country !== undefined && !requestedCountry) {
+    response.status(400).json({ error: "target_country must be a two-letter ISO 3166 country code." });
+    return;
+  }
+
+  const id = `feed_${Math.random().toString(36).slice(2, 10)}`;
+  const feed: ProductFeed = {
+    id,
+    target_country: requestedCountry,
+    updated_at: nowIso(),
+    products: []
+  };
+  feedStore.set(id, feed);
+
+  response.json({
+    id: feed.id,
+    target_country: feed.target_country,
+    updated_at: feed.updated_at
+  });
+});
+
+app.get("/product_feeds/:id/products", (request, response) => {
+  const feed = feedStore.get(request.params.id);
+  if (!feed) {
+    response.status(404).json({ error: "Feed not found" });
+    return;
+  }
+
+  response.json({
+    target_country: feed.target_country,
+    products: feed.products
+  });
+});
+
+app.patch("/product_feeds/:id/products", (request, response) => {
+  const feed = feedStore.get(request.params.id);
+  if (!feed) {
+    response.status(404).json({ error: "Feed not found" });
+    return;
+  }
+
+  const body = (request.body ?? {}) as { target_country?: string; products?: Array<Partial<SpecProduct>> };
+  if (!Array.isArray(body.products) || body.products.length === 0) {
+    response.status(400).json({ error: "products must be a non-empty array." });
+    return;
+  }
+
+  const requestedCountry = body.target_country === undefined ? undefined : validCountryCode(body.target_country);
+  if (body.target_country !== undefined && !requestedCountry) {
+    response.status(400).json({ error: "target_country must be a two-letter ISO 3166 country code." });
+    return;
+  }
+
+  const byId = new Map(feed.products.map((item) => [item.id, item]));
+  for (const partial of body.products) {
+    const id = typeof partial.id === "string" ? partial.id.trim() : "";
+    if (!id) {
+      response.status(400).json({ error: "Each product must include a non-empty id." });
+      return;
+    }
+    const existing = byId.get(id);
+    const next = existing ? (deepMerge(existing, partial) as SpecProduct) : ({ id, variants: [], ...partial } as SpecProduct);
+    byId.set(id, next);
+  }
+
+  feed.products = Array.from(byId.values());
+  feed.target_country = requestedCountry ?? feed.target_country;
+  feed.updated_at = nowIso();
+  feedStore.set(feed.id, feed);
+
+  response.json({
+    id: feed.id,
+    accepted: true
+  });
 });
 
 app.get("/mock-api/products", (request, response) => {

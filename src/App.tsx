@@ -21,11 +21,7 @@ const starterMessages: ChatMessage[] = [
     role: "system",
     content: "This demo loads an ACP-style product feed sample from acp-demo-products.jsonl."
   },
-  {
-    id: "assistant-1",
-    role: "assistant",
-    content: "Try: I want to buy a blue shirt."
-  }
+
 ];
 
 const defaultDataSource: DataSourceState = {
@@ -240,12 +236,29 @@ const getRouteExperience = () => {
   if (hash === "#/custom" || pathname === "/custom") return "custom";
   if (hash === "#/make-my-own-item" || pathname === "/make-my-own-item") return "maker";
   if (hash === "#/resources" || pathname === "/resources") return "resources";
+  if (hash === "#/profile" || pathname === "/profile") return "profile";
   return "demo";
 };
 
 function App() {
+  type TutorialStep = {
+    target: "source" | "chat" | "previews" | "terminal";
+    title: string;
+    description: string;
+  };
+
+  type ApiActivityEntry = {
+    id: string;
+    level: "info" | "ok" | "error";
+    line: string;
+  };
+
   const [cardView, setCardView] = useState<"vertical" | "horizontal">("vertical");
-  const [experience, setExperience] = useState<"demo" | "custom" | "maker" | "resources">(() => getRouteExperience());
+  const [experience, setExperience] = useState<"demo" | "custom" | "maker" | "resources" | "profile">(() => getRouteExperience());
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const savedTheme = window.localStorage.getItem("mrcht-theme");
+    return savedTheme === "light" ? "light" : "dark";
+  });
   const [dataSource, setDataSource] = useState<DataSourceState>(() => (getRouteExperience() === "custom" ? emptyCustomDataSource : defaultDataSource));
   const [messages, setMessages] = useState<ChatMessage[]>(() => (getRouteExperience() === "custom" ? customStarterMessages : starterMessages));
   const [prompt, setPrompt] = useState("");
@@ -255,7 +268,6 @@ function App() {
   const [isLoadingApi, setIsLoadingApi] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authNotice, setAuthNotice] = useState("");
-  const [isHeaderCompact, setIsHeaderCompact] = useState(false);
   const [isAgentThinking, setIsAgentThinking] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedPreviewProducts, setSelectedPreviewProducts] = useState<Product[]>([]);
@@ -266,7 +278,6 @@ function App() {
   const [cardCursor, setCardCursor] = useState<{ x: number; y: number } | null>(null);
   const [isDrawerJsonVisible, setIsDrawerJsonVisible] = useState(false);
   const [isDrawerTraceVisible, setIsDrawerTraceVisible] = useState(false);
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [makerTitle, setMakerTitle] = useState("My custom product");
   const [makerDescription, setMakerDescription] = useState("Add your own product copy here so it can render in a chat response.");
   const [makerCategory, setMakerCategory] = useState("Custom > Featured Item");
@@ -281,10 +292,53 @@ function App() {
   const [isMakerAutofilling, setIsMakerAutofilling] = useState(false);
   const [makerAutofillNotice, setMakerAutofillNotice] = useState("");
   const [makerLastAutofillSource, setMakerLastAutofillSource] = useState("");
+  const [apiActivity, setApiActivity] = useState<ApiActivityEntry[]>([]);
+  const [isLowLevelExpanded, setIsLowLevelExpanded] = useState(false);
+  const [isTerminalExpanded, setIsTerminalExpanded] = useState(false);
+  const [isTutorialActive, setIsTutorialActive] = useState(false);
+  const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const customPreviewChatRef = useRef<HTMLElement | null>(null);
   const customPreviewGridRef = useRef<HTMLElement | null>(null);
-  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const appendApiActivity = (line: string, level: ApiActivityEntry["level"] = "info") => {
+    const now = new Date();
+    const timestamp = now.toLocaleTimeString([], { hour12: false });
+    const formatted = `[${timestamp}] ${line}`;
+    setApiActivity((current) => [...current, { id: crypto.randomUUID(), level, line: formatted }].slice(-60));
+    if (level === "error") {
+      console.error(`[sandbox api] ${formatted}`);
+    } else if (level === "ok") {
+      console.info(`[sandbox api] ${formatted}`);
+    } else {
+      console.log(`[sandbox api] ${formatted}`);
+    }
+  };
+
+  const logPseudoActionCall = (product: Product) => {
+    if (dataSource.kind !== "api") return;
+
+    const actionPath =
+      product.action === "test_drive"
+        ? "/mock-api/actions/test-drive"
+        : product.action === "lead_form"
+          ? "/mock-api/actions/lead-form"
+          : "/mock-api/actions/checkout";
+
+    let actionUrl = actionPath;
+    try {
+      const base = dataSource.endpoint || apiEndpoint;
+      if (base) actionUrl = `${new URL(base).origin}${actionPath}`;
+    } catch {
+      actionUrl = actionPath;
+    }
+
+    appendApiActivity(`[pseudo] POST ${actionUrl}`);
+    appendApiActivity(
+      `[pseudo] body: ${JSON.stringify({ id: product.id, variant_id: product.variants[0]?.id ?? null, action: product.action })}`
+    );
+    appendApiActivity("[pseudo] 200 OK (simulated only, no network request)", "ok");
+  };
 
   useEffect(() => {
     const firebase = getFirebaseServices();
@@ -293,13 +347,6 @@ function App() {
     return onAuthStateChanged(firebase.auth, setAuthUser);
   }, []);
 
-  useEffect(() => {
-    const updateHeader = () => setIsHeaderCompact(window.scrollY > 96);
-    updateHeader();
-    window.addEventListener("scroll", updateHeader, { passive: true });
-
-    return () => window.removeEventListener("scroll", updateHeader);
-  }, []);
 
   useEffect(() => {
     const applyRoute = () => {
@@ -316,8 +363,12 @@ function App() {
       setCompletedActionProductId(null);
       setIsDrawerJsonVisible(false);
       setIsDrawerTraceVisible(false);
+      setApiActivity([]);
+      setIsLowLevelExpanded(false);
+      setIsTerminalExpanded(false);
+      setIsTutorialActive(false);
+      setTutorialStepIndex(0);
       setPrompt("");
-      setIsProfileMenuOpen(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
@@ -386,11 +437,84 @@ function App() {
   const isCustomExperience = experience === "custom";
   const isMakerExperience = experience === "maker";
   const isResourcesExperience = experience === "resources";
+  const isProfileExperience = experience === "profile";
   const isDemoExperience = experience === "demo";
   const needsGoogleLogin = (isCustomExperience || isMakerExperience) && isFirebaseConfigured && !authUser;
   const hasConnectedData = dataSource.products.length > 0 && dataSource.status === "ready";
   const hasDemoChat = !isCustomExperience && messages.some((message) => message.role === "user");
 
+  const tutorialSteps = useMemo<TutorialStep[]>(() => {
+    const steps: TutorialStep[] = [
+      {
+        target: "source",
+        title: "Connect data",
+        description: "Use this box to connect a CSV, JSON, or API source. The sandbox preview and chat are driven by the products loaded here."
+      },
+      {
+        target: "chat",
+        title: "Sample chat",
+        description: "This box shows how selected products render in a ChatGPT-style response, including action buttons like checkout or contact."
+      }
+    ];
+
+    if (hasConnectedData) {
+      steps.push({
+        target: "previews",
+        title: "Product previews",
+        description: "Pick product cards here to control what appears in the sample chat. You can compare up to three products at a time."
+      });
+    }
+
+    if (hasConnectedData && dataSource.kind === "api") {
+      steps.push({
+        target: "terminal",
+        title: "Pseudo terminal",
+        description: "This panel shows simulated API requests and responses so you can follow the integration flow without firing real action calls."
+      });
+    }
+
+    return steps;
+  }, [dataSource.kind, hasConnectedData]);
+
+  useEffect(() => {
+    if (!isTutorialActive) return;
+    if (tutorialSteps.length === 0) {
+      setIsTutorialActive(false);
+      setTutorialStepIndex(0);
+      return;
+    }
+    if (tutorialStepIndex > tutorialSteps.length - 1) {
+      setTutorialStepIndex(tutorialSteps.length - 1);
+    }
+  }, [isTutorialActive, tutorialStepIndex, tutorialSteps]);
+
+  const activeTutorialStep = isTutorialActive ? tutorialSteps[tutorialStepIndex] : null;
+  const currentTutorialTarget = activeTutorialStep?.target ?? null;
+
+  const startTutorial = () => {
+    if (tutorialSteps.length === 0) return;
+    setTutorialStepIndex(0);
+    setIsTutorialActive(true);
+  };
+
+  const closeTutorial = () => {
+    setIsTutorialActive(false);
+    setTutorialStepIndex(0);
+  };
+
+  const goToNextTutorialStep = () => {
+    if (!isTutorialActive) return;
+    if (tutorialStepIndex >= tutorialSteps.length - 1) {
+      closeTutorial();
+      return;
+    }
+    setTutorialStepIndex((current) => current + 1);
+  };
+
+  const goToPrevTutorialStep = () => {
+    if (!isTutorialActive) return;
+    setTutorialStepIndex((current) => Math.max(0, current - 1));
+  };
   const catalogHealth = useMemo(() => {
     const missingActions = dataSource.products.filter((product) => product.action === "none").length;
     const unknownAvailability = dataSource.products.filter((product) => product.availability === "unknown").length;
@@ -404,8 +528,7 @@ function App() {
 
     setSelectedPreviewProducts((current) => {
       const validProducts = current.filter((product) => customSandboxProducts.some((candidate) => candidate.id === product.id));
-      if (validProducts.length > 0) return validProducts.slice(0, MAX_PREVIEW_PRODUCTS);
-      return customSandboxProducts.slice(0, 1);
+      return validProducts.slice(0, MAX_PREVIEW_PRODUCTS);
     });
   }, [customSandboxProducts, hasConnectedData, isCustomExperience]);
 
@@ -460,41 +583,34 @@ function App() {
   }, [isCustomExperience, cardView, selectedPreviewProducts, checkoutProduct]);
 
   useEffect(() => {
-    if (!isProfileMenuOpen) return;
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (profileMenuRef.current?.contains(target ?? null)) return;
-      setIsProfileMenuOpen(false);
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsProfileMenuOpen(false);
-    };
-
-    window.addEventListener("mousedown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
+    window.localStorage.setItem("mrcht-theme", theme);
+    document.body.classList.toggle("theme-light", theme === "light");
     return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
+      document.body.classList.remove("theme-light");
     };
-  }, [isProfileMenuOpen]);
+  }, [theme]);
 
   const handleFileUpload = async (file: File | null) => {
     if (!file) return;
+    setApiActivity([]);
     setDataSource((current) => ({ ...current, kind: "file", status: "loading", label: file.name }));
 
     try {
       const rows = await readUploadedFile(file);
       const mapped = mapProductRows(rows);
-      await uploadSourceFile(authUser, file);
+      let uploadWarning: string | null = null;
+      try {
+        await uploadSourceFile(authUser, file);
+      } catch (uploadError) {
+        uploadWarning = uploadError instanceof Error ? uploadError.message : "File loaded locally, but cloud upload failed.";
+      }
 
       setDataSource({
         kind: "file",
         label: file.name,
         status: "ready",
         products: mapped.products,
-        warnings: mapped.warnings
+        warnings: uploadWarning ? [...mapped.warnings, `Cloud upload skipped: ${uploadWarning}`] : mapped.warnings
       });
     } catch (error) {
       setDataSource({
@@ -511,16 +627,39 @@ function App() {
     const endpoint = normalizeEndpoint(apiEndpoint);
     if (!endpoint) return;
 
+    setApiActivity([]);
+    appendApiActivity(`GET ${endpoint}`);
     setIsLoadingApi(true);
     setDataSource((current) => ({ ...current, kind: "api", status: "loading", endpoint, label: endpoint }));
 
     try {
-      const response = await fetch(endpoint);
-      if (!response.ok) throw new Error(`API responded with ${response.status}`);
-      const payload = (await response.json()) as unknown;
+      const fetchJsonWithLog = async (url: string) => {
+        const startedAt = performance.now();
+        const response = await fetch(url);
+        const durationMs = Math.round(performance.now() - startedAt);
+        appendApiActivity(`< ${response.status} ${response.statusText || "OK"} ${url} (${durationMs} ms)`, response.ok ? "ok" : "error");
+        if (!response.ok) throw new Error(`API responded with ${response.status} for ${url}`);
+        return (await response.json()) as unknown;
+      };
+
+      let payload = await fetchJsonWithLog(endpoint);
+      const endpointUrl = new URL(endpoint);
+      const endpointPath = endpointUrl.pathname.replace(/\/+$/, "");
+      const feedMatch = endpointPath.match(/\/product_feeds\/([^/]+)$/);
+      const isProductsPath = /\/product_feeds\/[^/]+\/products$/.test(endpointPath);
+
+      if (feedMatch && !isProductsPath) {
+        const feedId = decodeURIComponent(feedMatch[1]);
+        const productsUrl = `${endpointUrl.origin}/product_feeds/${encodeURIComponent(feedId)}/products`;
+        appendApiActivity(`GET ${productsUrl}`);
+        payload = await fetchJsonWithLog(productsUrl);
+      }
+
       const rows = extractRowsFromApiResponse(payload);
+      appendApiActivity(`Parsed ${rows.length} rows from API payload.`, rows.length > 0 ? "ok" : "error");
       if (rows.length === 0) throw new Error("Could not find a products/items/results/data array in the response.");
       const mapped = mapProductRows(rows);
+      appendApiActivity(`Mapped ${mapped.products.length} products for the sandbox.`, "ok");
 
       setDataSource({
         kind: "api",
@@ -531,6 +670,7 @@ function App() {
         warnings: mapped.warnings
       });
     } catch (error) {
+      appendApiActivity(error instanceof Error ? error.message : "Could not connect to API.", "error");
       setDataSource({
         kind: "api",
         label: endpoint,
@@ -559,8 +699,13 @@ function App() {
 
     window.setTimeout(() => {
       const { assistantMessage, trace } = simulateAgentTurn(trimmed, dataSource.products);
+      const followupMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "Thanks!"
+      };
 
-      setMessages((current) => [...current, assistantMessage]);
+      setMessages((current) => [...current, assistantMessage, followupMessage]);
       setTraces((current) => [trace, ...current]);
       setActiveTraceId(trace.id);
       setIsAgentThinking(false);
@@ -581,7 +726,6 @@ function App() {
   };
 
   const handleSignOut = async () => {
-    setIsProfileMenuOpen(false);
     await signOutOfFirebase();
   };
 
@@ -679,7 +823,29 @@ function App() {
       }))
     : null;
 
-  const navigateTo = (nextExperience: "demo" | "custom" | "maker" | "resources") => {
+  const navigateTo = (nextExperience: "demo" | "custom" | "maker" | "resources" | "profile") => {
+    if (nextExperience === "demo") {
+      setSelectedProduct(null);
+      setCompletedActionProductId(null);
+      setIsDrawerJsonVisible(false);
+      setIsDrawerTraceVisible(false);
+    }
+    if (nextExperience === "custom") {
+      setDataSource(emptyCustomDataSource);
+      setMessages(customStarterMessages);
+      setTraces([]);
+      setActiveTraceId(null);
+      setSelectedProduct(null);
+      setSelectedPreviewProducts([]);
+      setIsCustomPreviewLoading(false);
+      setCheckoutProduct(null);
+      setCompletedActionProductId(null);
+      setIsDrawerJsonVisible(false);
+      setIsDrawerTraceVisible(false);
+      setApiActivity([]);
+      setPrompt("");
+    }
+
     const nextPath =
       nextExperience === "custom"
         ? "/custom"
@@ -687,6 +853,8 @@ function App() {
           ? "/make-my-own-item"
           : nextExperience === "resources"
             ? "/resources"
+            : nextExperience === "profile"
+              ? "/profile"
             : "/";
     if (window.location.pathname === nextPath) return;
     setExperience(nextExperience);
@@ -859,6 +1027,20 @@ function App() {
       return nextSelection;
     });
 
+    if (isAddingSelection && dataSource.kind === "api") {
+      let detailsUrl = `/mock-api/products/${encodeURIComponent(product.id)}`;
+      try {
+        const base = dataSource.endpoint || apiEndpoint;
+        if (base) detailsUrl = `${new URL(base).origin}/mock-api/products/${encodeURIComponent(product.id)}`;
+      } catch {
+        detailsUrl = `/mock-api/products/${encodeURIComponent(product.id)}`;
+      }
+
+      appendApiActivity(`[pseudo] GET ${detailsUrl}`);
+      appendApiActivity(`[pseudo] selecting product ${product.id} for sample chat`);
+      appendApiActivity("[pseudo] 200 OK (simulated only, no network request)", "ok");
+    }
+
     if (isAddingSelection && nextSelectionCount === MAX_PREVIEW_PRODUCTS) {
       window.requestAnimationFrame(() => {
         scrollToCustomPreviewChat();
@@ -907,45 +1089,92 @@ function App() {
         </div>
       )}
       {completedActionProductId !== checkoutProduct.id && (
-        <button type="button" onClick={() => setCompletedActionProductId(checkoutProduct.id)}>
+        <button
+          type="button"
+          onClick={() => {
+            logPseudoActionCall(checkoutProduct);
+            setCompletedActionProductId(checkoutProduct.id);
+          }}
+        >
           {actionLabel(checkoutProduct)}
         </button>
       )}
     </aside>
   ) : null;
 
-  const authControl = authUser ? (
-    <div className="profile-menu" ref={profileMenuRef}>
-      <button
-        type="button"
-        className="profile-avatar-button"
-        aria-label="Profile menu"
-        aria-expanded={isProfileMenuOpen}
-        onClick={() => setIsProfileMenuOpen((current) => !current)}
-      >
-        {authUser.photoURL ? <img src={authUser.photoURL} alt="Profile" className="profile-avatar-image" /> : <span className="profile-avatar">G</span>}
-      </button>
-      {isProfileMenuOpen && (
-        <div className="profile-menu-popover">
-          <strong>{authUser.displayName ?? "Signed in"}</strong>
-          <p>{authUser.email ?? "Google account"}</p>
-          <button type="button" className="ghost-button" onClick={handleSignOut}>
-            Log out
+  const demoCheckoutDetail = (() => {
+    if (!selectedProduct) return null;
+    const product = selectedProduct;
+
+    return (
+      <aside className="chatgpt-inline-detail" aria-label="Checkout preview">
+        <div className="chatgpt-inline-detail-topline">
+          <p className="eyebrow">Product detail</p>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => {
+              setSelectedProduct(null);
+              setCompletedActionProductId(null);
+            }}
+          >
+            Close
           </button>
         </div>
-      )}
-    </div>
+        <div className="chatgpt-inline-detail-image">
+          <img src={productImage(product)} alt="" />
+        </div>
+        <h3>{product.title}</h3>
+        <p className="drawer-price">{productPrice(product)}</p>
+        <p>{product.description}</p>
+        <div className="chatgpt-inline-detail-meta">
+          <span>{product.category}</span>
+          <span>{availabilityLabel(product.availability)}</span>
+        </div>
+        {completedActionProductId === product.id && (
+          <div className="purchase-complete">
+            <strong>{product.action === "checkout" ? "Purchase complete" : "Action complete"}</strong>
+            <p>
+              {product.action === "test_drive"
+                ? "Test drive request created."
+                : product.action === "lead_form"
+                  ? "Follow-up request sent."
+                  : "Simulated checkout completed successfully."}
+            </p>
+          </div>
+        )}
+        {completedActionProductId !== product.id && (
+          <button
+            type="button"
+            onClick={() => {
+              logPseudoActionCall(product);
+              setCompletedActionProductId(product.id);
+            }}
+          >
+            {actionLabel(product)}
+          </button>
+        )}
+      </aside>
+    );
+  })();
+
+  const authControl = authUser ? (
+    <button type="button" className="profile-avatar-button" aria-label="Open profile" onClick={() => navigateTo("profile")}>
+      {authUser.photoURL ? <img src={authUser.photoURL} alt="Profile" className="profile-avatar-image" /> : <span className="profile-avatar">G</span>}
+    </button>
   ) : (
     <button type="button" className="profile-login-button" onClick={handleGoogleLogin}>
       <span className="profile-avatar">G</span>
-      <span>Google login</span>
+      <span>Log in with Google</span>
     </button>
   );
 
   const customWorkspace = (
     <>
       <div className={`custom-top-row ${hasConnectedData ? "chat-active" : ""}`}>
-        <section className="chat-panel custom-chat-panel">
+        <section
+          className={`chat-panel custom-chat-panel tutorial-target ${currentTutorialTarget === "chat" ? "tutorial-highlight" : ""} ${isCustomPreviewLoading ? "is-loading-fields" : ""}`}
+        >
           <div className="panel-heading">
             <div>
               <p className="eyebrow">2. Sample chat</p>
@@ -1103,7 +1332,9 @@ function App() {
           {authNotice && <p className="auth-notice">{authNotice}</p>}
         </section>
 
-        <aside className="source-panel custom-source-panel">
+        <aside
+          className={`source-panel custom-source-panel tutorial-target ${currentTutorialTarget === "source" ? "tutorial-highlight" : ""} ${isLowLevelExpanded ? "low-level-column-focus" : ""}`}
+        >
           <div className="panel-heading">
             <p className="eyebrow">1. Custom data</p>
             <h2>{hasConnectedData ? "Logs & data" : "Connect data"}</h2>
@@ -1112,7 +1343,7 @@ function App() {
           {needsGoogleLogin ? (
             <div className="login-gate">
               <strong>Google login required</strong>
-              <p>Sign in to use the custom sandbox, save traces, and persist uploaded sources.</p>
+              <p>Sign in to use the sandbox, save traces, and persist uploaded sources.</p>
               <button type="button" onClick={handleGoogleLogin}>
                 Continue with Google
               </button>
@@ -1174,7 +1405,7 @@ function App() {
                     Connect another source
                   </button>
 
-                  <div className="left-log-panel">
+                  <div className={`left-log-panel ${isLowLevelExpanded ? "low-level-focus" : ""}`}>
                     <div className="panel-heading compact">
                       <p className="eyebrow">3. Selection</p>
                       <h2>{customSandboxProducts.length} Product lab cards</h2>
@@ -1191,9 +1422,9 @@ function App() {
                         scrollToCustomPreviewGrid();
                       }}
                     >
-                      <span>Preview behavior</span>
-                      <p>The preview grid now sits below this top row so you can scan products and chat at the same time.</p>
-                      <p>Select up to {MAX_PREVIEW_PRODUCTS} products below to update the sample chat.</p>
+                      <span>Sample chat preview</span>
+                      <p>The product grid stays below this panel so you can review items while keeping the chat visible.</p>
+                      <p>Select up to {MAX_PREVIEW_PRODUCTS} products to render them together in the sample chat.</p>
                     </section>
 
                     {selectedProduct ? (
@@ -1203,14 +1434,19 @@ function App() {
                           onMouseEnter={() => setIsSelectedProductsHovered(true)}
                           onMouseLeave={() => setIsSelectedProductsHovered(false)}
                         >
-                          <span>Selected products</span>
+                          <span>Current selection</span>
                           <strong>{selectedPreviewProducts.length === 1 ? selectedProduct.title : `${selectedPreviewProducts.length} products selected`}</strong>
                           <p>{productPrice(selectedProduct)} · {availabilityLabel(selectedProduct.availability)}</p>
-                          <p>Selections are capped at {MAX_PREVIEW_PRODUCTS} and render together in the sample chat.</p>
+                          <p>Up to {MAX_PREVIEW_PRODUCTS} selected products can appear together in one sample chat response.</p>
                         </section>
 
-                        <section className="trace-block low-level-data-block">
-                          <span>Low-level data</span>
+                        <section className={`trace-block low-level-data-block ${isLowLevelExpanded ? "is-expanded" : ""}`}>
+                          <div className="panel-expand-header">
+                            <span>Low-level data</span>
+                            <button type="button" className="ghost-button panel-expand-button" onClick={() => setIsLowLevelExpanded((current) => !current)}>
+                              {isLowLevelExpanded ? "⤡ Collapse" : "⤢ Expand"}
+                            </button>
+                          </div>
                           <pre>{toJsonPreview(selectedProductLowLevelData)}</pre>
                         </section>
                       </>
@@ -1229,7 +1465,10 @@ function App() {
       </div>
 
       {!needsGoogleLogin && hasConnectedData ? (
-        <section className="custom-grid-panel" ref={customPreviewGridRef}>
+        <section
+          className={`custom-grid-panel tutorial-target ${currentTutorialTarget === "previews" ? "tutorial-highlight" : ""} ${isTerminalExpanded ? "terminal-column-focus" : ""}`}
+          ref={customPreviewGridRef}
+        >
           {dataSource.warnings.length > 0 && (
             <div className="warning-list">
               <strong>Readiness notes</strong>
@@ -1238,7 +1477,32 @@ function App() {
               ))}
             </div>
           )}
-          <section className="sandbox-grid-section" aria-label="Custom sandbox product gallery">
+          {dataSource.kind === "api" && (
+            <section
+              className={`api-activity-terminal tutorial-target ${currentTutorialTarget === "terminal" ? "tutorial-highlight" : ""} ${isTerminalExpanded ? "is-expanded" : ""}`}
+              aria-label="API activity"
+            >
+              <div className="api-activity-terminal-header">
+                <span>Pseudo terminal</span>
+                {dataSource.endpoint ? <code>{dataSource.endpoint}</code> : null}
+                <button type="button" className="ghost-button panel-expand-button" onClick={() => setIsTerminalExpanded((current) => !current)}>
+                  {isTerminalExpanded ? "⤡ Collapse" : "⤢ Expand"}
+                </button>
+              </div>
+              <div className="api-activity-terminal-body" aria-live="polite">
+                {apiActivity.length > 0 ? (
+                  apiActivity.map((entry) => (
+                    <p key={entry.id} className={`api-log-line ${entry.level}`}>
+                      {entry.line}
+                    </p>
+                  ))
+                ) : (
+                  <p className="api-log-line muted">No API calls yet.</p>
+                )}
+              </div>
+            </section>
+          )}
+          <section className="sandbox-grid-section" aria-label="Sandbox product gallery">
             <div className="sandbox-grid-topline">
               <div className="sandbox-grid-titleline">
                 <h3>{resultHeading(customSandboxProducts)}</h3>
@@ -1290,11 +1554,32 @@ function App() {
           </section>
         </section>
       ) : null}
+      {activeTutorialStep && (
+        <aside className="tutorial-overlay-card" aria-live="polite">
+          <p className="eyebrow">Sandbox tutorial</p>
+          <h3>{activeTutorialStep.title}</h3>
+          <p>{activeTutorialStep.description}</p>
+          <p className="tutorial-step-count">
+            Step {tutorialStepIndex + 1} of {tutorialSteps.length}
+          </p>
+          <div className="tutorial-actions">
+            <button type="button" className="ghost-button" onClick={closeTutorial}>
+              Close
+            </button>
+            <button type="button" className="ghost-button" onClick={goToPrevTutorialStep} disabled={tutorialStepIndex === 0}>
+              Back
+            </button>
+            <button type="button" onClick={goToNextTutorialStep}>
+              {tutorialStepIndex === tutorialSteps.length - 1 ? "Done" : "Next"}
+            </button>
+          </div>
+        </aside>
+      )}
     </>
   );
 
   const demoWorkspace = (
-    <section className="chat-panel">
+    <section className={`chat-panel ${isAgentThinking ? "is-loading-fields" : ""}`}>
       <div className="panel-heading">
         <div>
           <p className="eyebrow">2. Demo chat</p>
@@ -1432,7 +1717,7 @@ function App() {
       <section className="trace-block">
         <span>Getting started</span>
         <strong>How to use the sandbox</strong>
-        <p>Start in Home demo to see the simulated shopping flow, then move to Custom sandbox to upload your own CSV, JSON, JSONL, or connect a local API.</p>
+        <p>Start in Home demo to see the simulated shopping flow, then move to Sandbox to upload your own CSV, JSON, JSONL, or connect a local API.</p>
         <p>Use the sample files below if you want a quick starting point before bringing in your own catalog.</p>
       </section>
 
@@ -1482,7 +1767,7 @@ function App() {
       ) : (
         <>
       <div className="maker-grid">
-        <section className="trace-block maker-form-block">
+        <section className={`trace-block maker-form-block maker-form-block-primary ${isMakerAutofilling ? "is-loading-fields" : ""}`}>
           <span>1. Add photo first</span>
           <strong>Photo-forward item setup</strong>
           <p>Use a phone or webcam capture, or upload an image file. Then fill in item details.</p>
@@ -1512,7 +1797,7 @@ function App() {
           {makerAutofillNotice && <p className={`maker-notice ${isMakerAutofilling ? "is-loading" : ""}`}>{makerAutofillNotice}</p>}
         </section>
 
-        <section className="trace-block maker-form-block">
+        <section className={`trace-block maker-form-block maker-form-block-secondary ${isMakerAutofilling ? "is-loading-fields" : ""}`}>
           <span>2. Item details</span>
           <strong>Describe your item</strong>
           <div className="api-box">
@@ -1544,9 +1829,8 @@ function App() {
             </select>
           </div>
         </section>
-      </div>
 
-      <section className="chatgpt-preview-shell maker-preview-shell" aria-label="Custom item chat preview">
+        <section className="chatgpt-preview-shell maker-preview-shell" aria-label="Custom item chat preview">
         <div className="chatgpt-preview-header">
           <div>
             <p className="eyebrow">3. Chat preview</p>
@@ -1597,7 +1881,8 @@ function App() {
             <p>Thanks!</p>
           </article>
         </div>
-      </section>
+        </section>
+      </div>
 
       <section className="trace-block">
         <span>4. Save file</span>
@@ -1613,6 +1898,52 @@ function App() {
         </div>
       </section>
         </>
+      )}
+    </section>
+  );
+
+  const profileWorkspace = (
+    <section className="chat-panel profile-panel">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">Profile</p>
+          <h2>Account & appearance</h2>
+        </div>
+      </div>
+
+      {!authUser ? (
+        <div className="login-gate">
+          <strong>Google login required</strong>
+          <p>Sign in to access profile settings and theme controls.</p>
+          <button type="button" onClick={handleGoogleLogin}>
+            Continue with Google
+          </button>
+        </div>
+      ) : (
+        <div className="profile-settings-grid">
+          <section className="trace-block profile-account-card">
+            <span>Account</span>
+            <strong>{authUser.displayName ?? "Signed in"}</strong>
+            <p>{authUser.email ?? "Google account"}</p>
+            <button type="button" className="ghost-button" onClick={handleSignOut}>
+              Log out
+            </button>
+          </section>
+
+          <section className="trace-block profile-theme-card">
+            <span>Appearance</span>
+            <strong>Theme mode</strong>
+            <p>Pick your default UI theme for MRCHT.</p>
+            <div className="card-view-toggle profile-theme-toggle" aria-label="Theme mode">
+              <button type="button" className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}>
+                Dark
+              </button>
+              <button type="button" className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}>
+                Light
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </section>
   );
@@ -1663,7 +1994,13 @@ function App() {
           <p>{selectedProduct.action === "test_drive" ? "Test drive request created." : selectedProduct.action === "lead_form" ? "Follow-up request sent." : "Simulated checkout completed successfully."}</p>
         </div>
       ) : (
-        <button type="button" onClick={() => setCompletedActionProductId(selectedProduct.id)}>
+        <button
+          type="button"
+          onClick={() => {
+            logPseudoActionCall(selectedProduct);
+            setCompletedActionProductId(selectedProduct.id);
+          }}
+        >
           {actionLabel(selectedProduct)}
         </button>
       )}
@@ -1692,37 +2029,49 @@ function App() {
     </aside>
   ) : null;
 
+  const sharedHeader = (title: string, activeExperience: "demo" | "custom" | "maker" | "resources" | "profile") => (
+    <header className="custom-page-header unified-page-header">
+      <div className="custom-header-brand">
+        <img src="/logo_clean.png" alt="" className="brand-mark" />
+        <div>
+          <p className="eyebrow">Agentic commerce</p>
+          <h1>{title}</h1>
+        </div>
+      </div>
+      <div className="experience-switch custom-header-switch" aria-label="Workbench mode">
+        <button type="button" className={activeExperience === "demo" ? "active" : ""} onClick={() => navigateTo("demo")}>
+          Home
+        </button>
+        <button type="button" className={activeExperience === "custom" ? "active" : ""} onClick={() => navigateTo("custom")}>
+          Sandbox
+        </button>
+        <button type="button" className={activeExperience === "maker" ? "active" : ""} onClick={() => navigateTo("maker")}>
+          Product lab
+        </button>
+        <button type="button" className={activeExperience === "resources" ? "active" : ""} onClick={() => navigateTo("resources")}>
+          Resources
+        </button>
+        <button type="button" className={activeExperience === "profile" ? "active" : ""} onClick={() => navigateTo("profile")}>
+          Profile
+        </button>
+      </div>
+      <div className="custom-header-auth">
+        {activeExperience === "custom" && (
+          <button type="button" className="ghost-button tutorial-toggle-button" onClick={() => (isTutorialActive ? closeTutorial() : startTutorial())}>
+            {isTutorialActive ? "Exit tutorial" : "Tutorial"}
+          </button>
+        )}
+        {authControl}
+      </div>
+    </header>
+  );
+
   if (isCustomExperience) {
     return (
-      <main className="app-shell">
-        <header className="custom-page-header">
-          <div className="custom-header-brand">
-            <img src="/logo_clean.png" alt="" className="brand-mark" />
-            <div>
-              <p className="eyebrow">Agentic commerce</p>
-              <h1>Custom sandbox</h1>
-            </div>
-          </div>
-          <div className="experience-switch custom-header-switch" aria-label="Workbench mode compact">
-            <button type="button" onClick={() => navigateTo("demo")}>
-              Home demo
-            </button>
-            <button type="button" className="active" onClick={() => navigateTo("custom")}>
-              Custom sandbox
-            </button>
-            <button type="button" onClick={() => navigateTo("maker")}>
-              Product lab
-            </button>
-            <button type="button" onClick={() => navigateTo("resources")}>
-              Resources
-            </button>
-          </div>
-          <div className="custom-header-auth">
-            {authControl}
-          </div>
-        </header>
+      <main className={`app-shell app-shell-custom ${theme === "light" ? "theme-light" : ""}`}>
+        {sharedHeader("Sandbox", "custom")}
 
-        <section className="workspace custom-workspace" aria-label="Agentic commerce simulator">
+        <section className={`workspace custom-workspace ${isTutorialActive ? "tutorial-active" : ""}`} aria-label="Agentic commerce simulator">
           {customWorkspace}
         </section>
 
@@ -1733,33 +2082,8 @@ function App() {
 
   if (isResourcesExperience) {
     return (
-      <main className="app-shell">
-        <header className="custom-page-header">
-          <div className="custom-header-brand">
-            <img src="/logo_clean.png" alt="" className="brand-mark" />
-            <div>
-              <p className="eyebrow">Agentic commerce</p>
-              <h1>Resources</h1>
-            </div>
-          </div>
-          <div className="experience-switch custom-header-switch" aria-label="Workbench mode compact">
-            <button type="button" onClick={() => navigateTo("demo")}>
-              Home demo
-            </button>
-            <button type="button" onClick={() => navigateTo("custom")}>
-              Custom sandbox
-            </button>
-            <button type="button" onClick={() => navigateTo("maker")}>
-              Product lab
-            </button>
-            <button type="button" className="active" onClick={() => navigateTo("resources")}>
-              Resources
-            </button>
-          </div>
-          <div className="custom-header-auth">
-            {authControl}
-          </div>
-        </header>
+      <main className={`app-shell app-shell-resources ${theme === "light" ? "theme-light" : ""}`}>
+        {sharedHeader("Resources", "resources")}
 
         <section className="workspace home-workspace" aria-label="Agentic commerce resources">
           {resourcesWorkspace}
@@ -1770,33 +2094,8 @@ function App() {
 
   if (isMakerExperience) {
     return (
-      <main className="app-shell">
-        <header className="custom-page-header">
-          <div className="custom-header-brand">
-            <img src="/logo_clean.png" alt="" className="brand-mark" />
-            <div>
-              <p className="eyebrow">Agentic commerce</p>
-              <h1>Product lab</h1>
-            </div>
-          </div>
-          <div className="experience-switch custom-header-switch" aria-label="Workbench mode compact">
-            <button type="button" onClick={() => navigateTo("demo")}>
-              Home demo
-            </button>
-            <button type="button" onClick={() => navigateTo("custom")}>
-              Custom sandbox
-            </button>
-            <button type="button" className="active" onClick={() => navigateTo("maker")}>
-              Product lab
-            </button>
-            <button type="button" onClick={() => navigateTo("resources")}>
-              Resources
-            </button>
-          </div>
-          <div className="custom-header-auth">
-            {authControl}
-          </div>
-        </header>
+      <main className={`app-shell app-shell-maker ${theme === "light" ? "theme-light" : ""}`}>
+        {sharedHeader("Product lab", "maker")}
 
         <section className="workspace home-workspace" aria-label="Product lab">
           {makerWorkspace}
@@ -1805,73 +2104,45 @@ function App() {
     );
   }
 
-  return (
-    <main className="app-shell">
-      <div className="global-auth">
-        {authControl}
-      </div>
+  if (isProfileExperience) {
+    return (
+      <main className={`app-shell app-shell-profile ${theme === "light" ? "theme-light" : ""}`}>
+        {sharedHeader("Profile", "profile")}
 
-      {isDemoExperience && (
-        <header className="page-hero">
-          <div className="brand-lockup">
-            <img src="/logo_clean.png" alt="" className="brand-mark" />
-            <div>
-              <h1>MRCHT</h1>
-              <p className="eyebrow">Open-source agentic commerce workbench</p>
-            </div>
-          </div>
-          <div className="experience-switch" aria-label="Workbench mode">
-            <button type="button" className="active" onClick={() => navigateTo("demo")}>
-              Home demo
-            </button>
-            <button type="button" onClick={() => navigateTo("custom")}>
-              Custom sandbox
-            </button>
-            <button type="button" onClick={() => navigateTo("maker")}>
-              Product lab
-            </button>
-            <button type="button" onClick={() => navigateTo("resources")}>
-              Resources
-            </button>
-          </div>
-        </header>
-      )}
-
-      <header className={`compact-dock ${isHeaderCompact || isCustomExperience ? "visible" : ""}`} aria-hidden={!(isHeaderCompact || isCustomExperience)}>
-        <div className="brand-lockup">
-          <img src="/logo_clean.png" alt="" className="brand-mark" />
-          <div>
-            <p className="eyebrow">Agentic commerce</p>
-            <h1>{isCustomExperience ? "Custom sandbox" : isMakerExperience ? "Product lab" : isResourcesExperience ? "Resources" : "Home demo"}</h1>
-          </div>
-        </div>
-        <div className="experience-switch" aria-label="Workbench mode compact">
-          <button type="button" className={isDemoExperience ? "active" : ""} onClick={() => navigateTo("demo")}>
-            Home demo
-          </button>
-          <button type="button" className={isCustomExperience ? "active" : ""} onClick={() => navigateTo("custom")}>
-            Custom sandbox
-          </button>
-          <button type="button" className={isMakerExperience ? "active" : ""} onClick={() => navigateTo("maker")}>
-            Product lab
-          </button>
-          <button type="button" className={isResourcesExperience ? "active" : ""} onClick={() => navigateTo("resources")}>
-            Resources
-          </button>
-        </div>
-      </header>
-
-      {isDemoExperience && (
-        <section className="demo-prelude" aria-label="Demo pitch">
-          <div className="demo-pitch-block">
-            <p className="demo-prelude-header">Pitch</p>
-            <p>
-              MRCHT is an agentic commerce workbench that turns product data into shopping conversations, showing how recommendations, availability, and checkout actions can happen directly inside chat.
-            </p>
-          </div>
-          <p className="demo-prelude-header demo-try-kicker">Try it out!</p>
+        <section className="workspace home-workspace" aria-label="Profile settings">
+          {profileWorkspace}
         </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className={`app-shell app-shell-demo ${theme === "light" ? "theme-light" : ""}`}>
+      {sharedHeader("Home demo", "demo")}
+      <section className="demo-hero-inline" aria-label="Demo intro">
+        <img src="/logo_clean.png" alt="" className="brand-mark" />
+        <h1>MRCHT</h1>
+        <p>Open-source agentic commerce workbench</p>
+      </section>
+
+      {isDemoExperience && (
+        <>
+          <p className="demo-prelude-header demo-prelude-kicker">About MRCHT</p>
+          <section className="demo-prelude" aria-label="Demo pitch">
+            <div className="demo-pitch-block">
+            <p>MRCHT helps teams make their product catalog and checkout flows ready for AI-native commerce.</p>
+            <p>
+              In 2025, OpenAI and Stripe introduced the Agentic Commerce Protocol (ACP), an open standard that enables agents to handle discovery, checkout, payments, and real-time updates while merchants keep their existing systems.
+            </p>
+            <p>
+              The platform provides tools to structure product data, connect APIs, and simulate real shopping experiences before launch. Teams can validate catalog quality, action mapping, and checkout readiness so customers see accurate products and clear next steps in chat.
+            </p>
+            </div>
+          </section>
+        </>
       )}
+
+      <p className="demo-prelude-header demo-try-kicker">Try it out!</p>
 
       <section className={`workspace ${isCustomExperience ? "custom-workspace" : "home-workspace"}`} aria-label="Agentic commerce simulator">
         {isCustomExperience && (
@@ -1884,7 +2155,7 @@ function App() {
             {needsGoogleLogin ? (
               <div className="login-gate">
                 <strong>Google login required</strong>
-                <p>Sign in to use the custom sandbox, save traces, and persist uploaded sources.</p>
+                <p>Sign in to use the sandbox, save traces, and persist uploaded sources.</p>
                 <button type="button" onClick={handleGoogleLogin}>
                   Continue with Google
                 </button>
@@ -1963,7 +2234,7 @@ function App() {
 
                     <section className="trace-block">
                       <span>Preview behavior</span>
-                      <p>The custom sandbox now generates a gallery of up to ten products from the connected source.</p>
+                      <p>The sandbox now generates a gallery of up to ten products from the connected source.</p>
                       <p>Click any product on the right to see a sample ChatGPT-style response with that item rendered as the featured card.</p>
                     </section>
 
@@ -1997,7 +2268,7 @@ function App() {
           {isCustomExperience ? (
             hasConnectedData ? (
               <>
-                <section className="sandbox-grid-section" aria-label="Custom sandbox product gallery">
+                <section className="sandbox-grid-section" aria-label="Sandbox product gallery">
                   <div className="sandbox-grid-topline">
                     <h3>{resultHeading(customSandboxProducts)}</h3>
                     <p>Showing {customSandboxProducts.length} Product lab items from the connected catalog. Click a card to load its sample chat.</p>
@@ -2102,7 +2373,8 @@ function App() {
                 ))}
               </div>
 
-              <div className="conversation" aria-live="polite" ref={conversationRef}>
+              <div className={`demo-chat-body ${selectedProduct ? "has-inline-detail" : ""}`}>
+                <div className="conversation" aria-live="polite" ref={conversationRef}>
                 {messages.map((message) => (
                   <article key={message.id} className={`message ${message.role}`}>
                     {message.role !== "user" && <span>{message.selectedTool ?? message.role}</span>}
@@ -2176,23 +2448,24 @@ function App() {
                     <p>Searching the connected catalog and preparing commerce cards...</p>
                   </article>
                 )}
+                </div>
+                {demoCheckoutDetail}
               </div>
 
               <div className="composer composer-guided-bar" aria-label="Sample chat composer">
                 <button
                   type="button"
-                  className="composer-readout"
-                  onClick={handleGenerateRandomPrompt}
-                  disabled={!hasConnectedData || needsGoogleLogin}
+                  className={`composer-readout ${prompt.trim() ? "is-prepped" : ""}`}
+                  onClick={() => {
+                    if (!prompt.trim()) {
+                      handleGenerateRandomPrompt();
+                      return;
+                    }
+                    void sendPrompt();
+                  }}
+                  disabled={!hasConnectedData || needsGoogleLogin || isAgentThinking}
                 >
                   {prompt || "Generate a sample chat"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void sendPrompt()}
-                  disabled={!hasConnectedData || needsGoogleLogin || isAgentThinking || !prompt.trim()}
-                >
-                  {isAgentThinking ? "Working..." : "Send chat"}
                 </button>
               </div>
             </>
@@ -2201,8 +2474,6 @@ function App() {
           {authNotice && <p className="auth-notice">{authNotice}</p>}
         </section>
       </section>
-
-      {productDrawer}
 
       {cardCursor && <div className="cursor-tail" style={{ left: cardCursor.x, top: cardCursor.y }} />}
     </main>
